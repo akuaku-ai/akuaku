@@ -19,12 +19,19 @@ const (
 // unreachable) marshal error path.
 var marshal = func(v any) ([]byte, error) { return json.MarshalIndent(v, "", "  ") }
 
-// Dir returns the state directory: AKUAKU_STATE_DIR when set, otherwise "state".
+// Dir returns the state directory: AKUAKU_STATE_DIR when set, otherwise
+// ~/.akuaku/state, falling back to a local "state" directory when the home
+// directory cannot be determined. An absolute default lets the monitor and the
+// launcher agree on the same directory regardless of the working directory.
 func Dir() string {
 	if d := os.Getenv(envStateDir); d != "" {
 		return d
 	}
-	return defaultStateDir
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return defaultStateDir
+	}
+	return filepath.Join(home, ".akuaku", "state")
 }
 
 // Write serializes run to dir/<id>.json through a temporary file and an atomic
