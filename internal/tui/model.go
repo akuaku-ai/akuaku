@@ -310,12 +310,11 @@ const (
 	maxNameW  = 36
 	minInner  = 20
 	fixedCols = 2 + 6 + backendW + modelW + durW + tokensW + costW // marker+glyph, six gaps, fixed columns
-	// maxDashW caps how wide the dashboard grows so an ultra-wide terminal does
-	// not stretch it into a sea of empty space; the box border and padding add 4.
-	maxDashW = fixedCols + maxNameW + 4
 	// outerPadX/Y frame the whole dashboard so it never sits flush to the edges.
 	outerPadX = 2
 	outerPadY = 1
+	// minBoxHeight keeps the table box from collapsing on a very short terminal.
+	minBoxHeight = 5
 )
 
 // View renders the current frame: the single-run detail when a run is selected
@@ -327,8 +326,9 @@ func (m Model) View() string {
 	return m.listView()
 }
 
-// listView renders the dashboard: an overview strip, the agent table, and a
-// keybinding footer, capped in width and framed by outer padding.
+// listView renders the dashboard to fill the terminal: an overview strip, the
+// agent table stretched to the remaining height, and a keybinding footer, all
+// framed by outer padding.
 func (m Model) listView() string {
 	runs := m.visible()
 
@@ -336,29 +336,26 @@ func (m Model) listView() string {
 	if width <= 0 {
 		width = 80
 	}
-	if width > maxDashW {
-		width = maxDashW
-	}
-	// Shrink to the widest name so short lists stay dense instead of leaving a
-	// gap between the name and the metric columns.
-	nameW := longestName(runs)
-	if nameW < minNameW {
-		nameW = minNameW
-	}
-	if nameW > maxNameW {
-		nameW = maxNameW
-	}
-	if needed := fixedCols + nameW + 4; needed < width {
-		width = needed
+
+	header := m.header(width, computeMetrics(runs))
+	footer := m.footer()
+
+	// Grow the table box to fill the height left over below the header and
+	// above the footer. A height of 0 means "size to content" (e.g. in tests
+	// before the first window-size message).
+	boxHeight := 0
+	if m.height > 0 {
+		boxHeight = m.height - 2*outerPadY - lines(header) - lines(footer)
+		if boxHeight < minBoxHeight {
+			boxHeight = minBoxHeight
+		}
 	}
 
-	sections := []string{
-		m.header(width, computeMetrics(runs)),
-		m.table(width, runs),
-		m.footer(),
-	}
-	return appStyle.Render(strings.Join(sections, "\n"))
+	return appStyle.Render(strings.Join([]string{header, m.table(width, runs, boxHeight), footer}, "\n"))
 }
+
+// lines counts the rows in a rendered block.
+func lines(s string) int { return strings.Count(s, "\n") + 1 }
 
 // footer shows the keybindings, or the filter input while it is being edited.
 func (m Model) footer() string {
@@ -370,17 +367,6 @@ func (m Model) footer() string {
 		return headerStyle.Render("filter: ") + m.filter + headerStyle.Render("   ·   "+hint)
 	}
 	return headerStyle.Render(hint)
-}
-
-// longestName is the rune length of the widest run name, sizing the name column.
-func longestName(runs []state.Run) int {
-	n := 0
-	for _, run := range runs {
-		if l := len([]rune(run.Name)); l > n {
-			n = l
-		}
-	}
-	return n
 }
 
 // header is the k9s-style top strip: run stats on the left and the Akuaku logo
@@ -458,9 +444,11 @@ func maskLines() []string {
 	}
 }
 
-// table renders the bordered agent list sized to width, with the selected row
-// marked and each row colored by status.
-func (m Model) table(width int, runs []state.Run) string {
+// table renders the bordered agent list, filling width and (when boxHeight > 0)
+// height, with the selected row marked and each row colored by status. The name
+// column is capped so a wide terminal leaves trailing space rather than
+// stretching the name into a gap.
+func (m Model) table(width int, runs []state.Run, boxHeight int) string {
 	innerW := width - 4
 	if innerW < minInner {
 		innerW = minInner
@@ -468,6 +456,9 @@ func (m Model) table(width int, runs []state.Run) string {
 	nameW := innerW - fixedCols
 	if nameW < minNameW {
 		nameW = minNameW
+	}
+	if nameW > maxNameW {
+		nameW = maxNameW
 	}
 
 	var b strings.Builder
@@ -491,7 +482,12 @@ func (m Model) table(width int, runs []state.Run) string {
 			b.WriteString(rowStyle(run.Status, i == m.cursor).Render(row))
 		}
 	}
-	return boxStyle.Width(width - 2).Render(b.String())
+
+	box := boxStyle.Width(width - 2)
+	if boxHeight > 2 {
+		box = box.Height(boxHeight - 2)
+	}
+	return box.Render(b.String())
 }
 
 // emptyMessage explains why the list is empty: no matches while filtering, or no

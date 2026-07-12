@@ -516,16 +516,31 @@ func TestView_HandlesNarrowWidthWithoutPanic(t *testing.T) {
 	}
 }
 
-func TestView_CapsWidthOnWideTerminal(t *testing.T) {
-	out := Model{runs: threeRuns(), width: 250}.View()
+func TestView_FillsWidth(t *testing.T) {
+	const w = 200
+	out := Model{runs: threeRuns(), width: w}.View()
 	maxw := 0
 	for _, l := range strings.Split(out, "\n") {
-		if w := lipgloss.Width(l); w > maxw {
-			maxw = w
+		if lw := lipgloss.Width(l); lw > maxw {
+			maxw = lw
 		}
 	}
-	if maxw > maxDashW+2*outerPadX+2 {
-		t.Errorf("dashboard stretched to %d cols on a wide terminal; expected it capped near %d", maxw, maxDashW)
+	if maxw < w-4 || maxw > w {
+		t.Errorf("dashboard should fill the width; widest line = %d, want ~%d", maxw, w)
+	}
+}
+
+func TestView_FillsHeight(t *testing.T) {
+	const h = 30
+	out := Model{runs: threeRuns(), width: 100, height: h}.View()
+	if n := len(strings.Split(out, "\n")); n < h-1 || n > h+1 {
+		t.Errorf("dashboard should fill the height; %d lines, want ~%d", n, h)
+	}
+}
+
+func TestView_TinyHeightDoesNotCollapse(t *testing.T) {
+	if out := (Model{runs: threeRuns(), width: 100, height: 3}).View(); out == "" {
+		t.Error("expected output even at a tiny height")
 	}
 }
 
