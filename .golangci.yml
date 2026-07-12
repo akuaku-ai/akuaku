@@ -1,0 +1,16 @@
+# golangci-lint configuration (v2 schema).
+# Keeps the curated default linters and adds revive; formatting is handled by
+# gofmt and goimports. Expand as the codebase grows.
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - revive
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
