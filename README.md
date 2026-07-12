@@ -54,7 +54,7 @@ Start the monitor:
 akuaku
 ```
 
-Navigate it with `↑`/`↓` (or `k`/`j`), press `Enter` to open a run and read its full answer, `Esc` to go back, and `q` to quit.
+It opens a full-screen dashboard: an overview strip (live/done/error counts, total tokens and cost) over a full-width table of agents, with running agents on top and each row colored by status. Navigate with `↑`/`↓` (or `k`/`j`), press `Enter` to open a run and read its full answer, `Esc` to go back, and `q` to quit.
 
 Launch an agent:
 

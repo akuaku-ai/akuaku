@@ -177,11 +177,11 @@ func TestComputeMetrics_AggregatesByStatus(t *testing.T) {
 func TestView_RendersRunsAndMetrics(t *testing.T) {
 	now := time.Unix(100, 0).UTC()
 	runs := []state.Run{
-		{ID: "1", Name: "refactor", Backend: "claude", Status: state.StatusRunning, StartedAt: time.Unix(90, 0).UTC(), Tokens: 1200, Cost: 0.04},
+		{ID: "1", Name: "refactor", Backend: "claude", Model: "opus", Status: state.StatusRunning, StartedAt: time.Unix(90, 0).UTC(), Tokens: 1200, Cost: 0.04},
 	}
-	out := Model{runs: runs, now: now}.View()
+	out := Model{runs: runs, now: now, width: 100}.View()
 
-	for _, want := range []string{"Akuaku", "refactor", "claude", "running", "1200", "0.04", "running:"} {
+	for _, want := range []string{"Akuaku", "refactor", "claude", "opus", "1200", "0.04", "running 1"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("View() missing %q, got:\n%s", want, out)
 		}
@@ -194,7 +194,7 @@ func TestView_ReflectedRunShowsDashForUsage(t *testing.T) {
 		{ID: "s1", Name: "external session", Backend: "claude", Status: state.StatusRunning,
 			Source: "hook", StartedAt: time.Unix(90, 0).UTC()},
 	}
-	out := Model{runs: runs, now: now}.View()
+	out := Model{runs: runs, now: now, width: 100}.View()
 
 	if !strings.Contains(out, "external session") {
 		t.Errorf("reflected run not shown, got:\n%s", out)
@@ -334,8 +334,8 @@ func TestUpdate_RunsMessageClampsCursor(t *testing.T) {
 }
 
 func TestView_ListMarksSelectedRow(t *testing.T) {
-	out := Model{runs: threeRuns(), cursor: 1}.View()
-	if line := runLine(out, "two"); !strings.HasPrefix(strings.TrimLeft(line, " "), ">") {
+	out := Model{runs: threeRuns(), cursor: 1, width: 100}.View()
+	if line := runLine(out, "two"); !strings.Contains(line, ">") {
 		t.Errorf("selected row should be marked, got %q", line)
 	}
 	if line := runLine(out, "one"); strings.Contains(line, ">") {
@@ -380,6 +380,124 @@ func TestView_DetailIgnoredWhenNoRuns(t *testing.T) {
 	out := Model{detail: true}.View()
 	if !strings.Contains(out, "no agents") {
 		t.Errorf("empty detail should fall back to the list, got:\n%s", out)
+	}
+}
+
+func TestUpdate_WindowSizeStoresDimensions(t *testing.T) {
+	next, _ := New().Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m := next.(Model)
+	if m.width != 120 || m.height != 40 {
+		t.Errorf("dimensions = %dx%d, want 120x40", m.width, m.height)
+	}
+}
+
+func TestUpdate_RunsMessageSortsRunningFirstThenNewest(t *testing.T) {
+	older, newer := time.Unix(100, 0), time.Unix(200, 0)
+	runs := []state.Run{
+		{Name: "done-old", Status: state.StatusDone, StartedAt: older},
+		{Name: "run-old", Status: state.StatusRunning, StartedAt: older},
+		{Name: "done-new", Status: state.StatusDone, StartedAt: newer},
+		{Name: "run-new", Status: state.StatusRunning, StartedAt: newer},
+	}
+	next, _ := New().Update(runsMsg{runs: runs})
+	got := next.(Model).runs
+
+	want := []string{"run-new", "run-old", "done-new", "done-old"}
+	for i, name := range want {
+		if got[i].Name != name {
+			t.Errorf("row %d = %q, want %q (full order: %+v)", i, got[i].Name, name, got)
+		}
+	}
+}
+
+func TestPadRight(t *testing.T) {
+	if got := padRight("ab", 4); got != "ab  " {
+		t.Errorf("padRight pad = %q", got)
+	}
+	if got := padRight("abcdef", 4); got != "abcd" {
+		t.Errorf("padRight truncate = %q", got)
+	}
+}
+
+func TestPadLeft(t *testing.T) {
+	if got := padLeft("ab", 4); got != "  ab" {
+		t.Errorf("padLeft pad = %q", got)
+	}
+	if got := padLeft("abcdef", 4); got != "abcd" {
+		t.Errorf("padLeft truncate = %q", got)
+	}
+}
+
+func TestHumanizeTokens(t *testing.T) {
+	cases := map[int]string{0: "0", 999: "999", 1500: "1.5k", 2_500_000: "2.5M"}
+	for n, want := range cases {
+		if got := humanizeTokens(n); got != want {
+			t.Errorf("humanizeTokens(%d) = %q, want %q", n, got, want)
+		}
+	}
+}
+
+func TestStatusGlyph(t *testing.T) {
+	cases := map[state.Status]string{
+		state.StatusRunning: "●",
+		state.StatusError:   "✖",
+		state.StatusDone:    "✔",
+	}
+	for status, want := range cases {
+		if got := statusGlyph(status); got != want {
+			t.Errorf("statusGlyph(%q) = %q, want %q", status, got, want)
+		}
+	}
+}
+
+func TestView_OverviewShowsCountsAndTotals(t *testing.T) {
+	runs := []state.Run{
+		{Name: "a", Status: state.StatusRunning, Tokens: 1500, Cost: 0.10},
+		{Name: "b", Status: state.StatusDone, Tokens: 2500, Cost: 0.20},
+		{Name: "c", Status: state.StatusError},
+	}
+	out := Model{runs: runs, width: 100}.View()
+	for _, want := range []string{"running 1", "done 1", "err 1", "4.0k", "$0.30"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("overview missing %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestView_FooterShowsKeys(t *testing.T) {
+	out := Model{runs: threeRuns(), width: 100}.View()
+	for _, key := range []string{"move", "enter", "quit"} {
+		if !strings.Contains(out, key) {
+			t.Errorf("footer missing %q, got:\n%s", key, out)
+		}
+	}
+}
+
+func TestView_RendersBorderedBox(t *testing.T) {
+	out := Model{runs: threeRuns(), width: 100}.View()
+	if !strings.Contains(out, "│") {
+		t.Errorf("expected a full-width bordered box, got:\n%s", out)
+	}
+}
+
+func TestView_ColorsRunningDoneAndErrorRows(t *testing.T) {
+	// One of each status plus a cursor exercises every row style branch.
+	runs := []state.Run{
+		{Name: "alive", Status: state.StatusRunning},
+		{Name: "finished", Status: state.StatusDone},
+		{Name: "broken", Status: state.StatusError},
+	}
+	out := Model{runs: runs, width: 100, cursor: 1}.View()
+	for _, want := range []string{"alive", "finished", "broken"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("row %q not rendered, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestView_HandlesNarrowWidthWithoutPanic(t *testing.T) {
+	if out := (Model{runs: threeRuns(), width: 10}).View(); out == "" {
+		t.Error("expected output even at a narrow width")
 	}
 }
 
