@@ -43,10 +43,17 @@ type runsMsg struct {
 	err  error
 }
 
-// loadRuns scans the state directory. It runs as a command so filesystem I/O
-// stays out of the pure Update path.
+// loadRuns scans the state directory and applies the custom-name overlay. It
+// runs as a command so filesystem I/O stays out of the pure Update path.
 func loadRuns() tea.Msg {
-	runs, err := state.ReadDir(state.Dir())
+	dir := state.Dir()
+	runs, err := state.ReadDir(dir)
+	names := state.ReadNames(dir)
+	for i := range runs {
+		if name, ok := names[runs[i].ID]; ok {
+			runs[i].Name = name
+		}
+	}
 	return runsMsg{runs: runs, err: err}
 }
 
@@ -55,16 +62,19 @@ func loadRuns() tea.Msg {
 // row, detail toggles the single-run view, and width/height track the terminal
 // size so the dashboard fills it.
 type Model struct {
-	runs      []state.Run
-	now       time.Time
-	err       error
-	cursor    int
-	detail    bool
-	width     int
-	height    int
-	filter    string // active filter query; empty shows everything
-	filtering bool   // whether the filter input is being edited
-	showAll   bool   // false shows only running agents; true shows the full history
+	runs       []state.Run
+	now        time.Time
+	err        error
+	cursor     int
+	detail     bool
+	width      int
+	height     int
+	filter     string // active filter query; empty shows everything
+	filtering  bool   // whether the filter input is being edited
+	showAll    bool   // false shows only running agents; true shows the full history
+	command    string // command being typed after ":"
+	commanding bool   // whether the command input is being edited
+	commandMsg string // result of the last command, shown until the next one
 }
 
 // New returns a Model in its initial state.
@@ -83,6 +93,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if m.filtering {
 			return m.filterKey(msg)
+		}
+		if m.commanding {
+			return m.commandKey(msg)
 		}
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -110,6 +123,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.showAll = !m.showAll
 				m.cursor = clamp(m.cursor, len(m.visible()))
 			}
+		case ":":
+			m.commanding = true
+			m.commandMsg = ""
 		}
 		return m, nil
 	case tea.WindowSizeMsg:
@@ -148,6 +164,59 @@ func (m Model) filterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	m.cursor = clamp(m.cursor, len(m.visible()))
 	return m, nil
+}
+
+// commandKey edits the command being typed after ":", running it on Enter.
+func (m Model) commandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEnter:
+		m.commanding = false
+		return m.dispatch(m.command)
+	case tea.KeyEsc:
+		m.commanding = false
+		m.command = ""
+	case tea.KeyBackspace:
+		if r := []rune(m.command); len(r) > 0 {
+			m.command = string(r[:len(r)-1])
+		}
+	case tea.KeySpace:
+		m.command += " "
+	case tea.KeyRunes:
+		m.command += string(msg.Runes)
+	}
+	return m, nil
+}
+
+// dispatch runs a typed command against the selected run. Unknown or malformed
+// commands report a message instead of acting.
+func (m Model) dispatch(command string) (tea.Model, tea.Cmd) {
+	fields := strings.Fields(command)
+	m.command = ""
+	if len(fields) == 0 {
+		return m, nil
+	}
+	switch fields[0] {
+	case "rename":
+		name := strings.TrimSpace(strings.TrimPrefix(command, fields[0]))
+		if name == "" || m.cursor >= len(m.visible()) {
+			m.commandMsg = "usage: rename <new name>"
+			return m, nil
+		}
+		id := m.visible()[m.cursor].ID
+		m.commandMsg = "renamed to " + name
+		return m, renameCmd(id, name)
+	default:
+		m.commandMsg = "unknown command: " + fields[0]
+		return m, nil
+	}
+}
+
+// renameCmd records a custom name for id and reloads so the change shows at once.
+func renameCmd(id, name string) tea.Cmd {
+	return func() tea.Msg {
+		_ = state.WriteName(state.Dir(), id, name)
+		return loadRuns()
+	}
 }
 
 // visible is the run list the table shows: only running agents unless showAll is
@@ -367,20 +436,35 @@ func (m Model) listView() string {
 // lines counts the rows in a rendered block.
 func lines(s string) int { return strings.Count(s, "\n") + 1 }
 
-// footer shows the keybindings, or the filter input while it is being edited.
+// footer shows the keybindings, or the filter/command input while it is edited.
 func (m Model) footer() string {
 	if m.filtering {
 		return headerStyle.Render("filter: ") + m.filter + headerStyle.Render("▏  (enter apply · esc clear)")
+	}
+	if m.commanding {
+		return headerStyle.Render(":") + m.command + headerStyle.Render("▏  (enter run · esc cancel)")
 	}
 	view := "a all"
 	if m.showAll {
 		view = "a running"
 	}
-	hint := "↑/↓ move · enter open · / filter · " + view + " · q quit"
-	if m.filter != "" {
-		return headerStyle.Render("filter: ") + m.filter + headerStyle.Render("   ·   "+hint)
+	hint := "↑/↓ move · enter open · / filter · : cmd · " + view + " · q quit"
+	if note := m.note(); note != "" {
+		return note + headerStyle.Render("   ·   "+hint)
 	}
 	return headerStyle.Render(hint)
+}
+
+// note is the last command result or the active filter, shown beside the hints.
+func (m Model) note() string {
+	switch {
+	case m.commandMsg != "":
+		return headerStyle.Render(m.commandMsg)
+	case m.filter != "":
+		return headerStyle.Render("filter: ") + m.filter
+	default:
+		return ""
+	}
 }
 
 // header is the k9s-style top strip: run stats on the left and the Akuaku logo
@@ -588,28 +672,54 @@ func padLeft(s string, w int) string {
 // captured answer, the failure reason, or a note that no output was recorded.
 func (m Model) detailView() string {
 	run := m.visible()[m.cursor]
+	you := lipgloss.NewStyle().Bold(true).Foreground(colorRunning)
+	agent := lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
 
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("akuaku") + "  " + lipgloss.NewStyle().Bold(true).Render(run.Name))
-	b.WriteString("\n\n")
-	fmt.Fprintf(&b, "backend:  %s\n", run.Backend)
-	fmt.Fprintf(&b, "status:   %s\n", run.Status)
-	if run.Task != "" {
-		fmt.Fprintf(&b, "task:     %s\n", run.Task)
-	}
-	fmt.Fprintf(&b, "tokens:   %s\n", formatTokens(run))
-	fmt.Fprintf(&b, "cost:     %s\n\n", formatCost(run))
+	b.WriteByte('\n')
+	fmt.Fprintf(&b, "%s · %s · %s tok · %s\n\n",
+		headerStyle.Render(run.Backend), run.Status, formatTokens(run), formatCost(run))
 
+	// The exchange, framed as a conversation.
+	b.WriteString(you.Render("You"))
+	b.WriteByte('\n')
+	b.WriteString(indent(orDim(run.Task, "(no prompt recorded)")))
+	b.WriteString("\n\n")
+
+	b.WriteString(agent.Render("🗿 " + run.Backend))
+	b.WriteByte('\n')
 	switch {
 	case run.Status == state.StatusError && run.Error != "":
-		b.WriteString(run.Error)
+		b.WriteString(indent(run.Error))
 	case run.Output != "":
-		b.WriteString(run.Output)
+		b.WriteString(indent(run.Output))
 	default:
-		b.WriteString(headerStyle.Render("(no output captured)"))
+		b.WriteString(indent(headerStyle.Render("(no output captured)")))
 	}
 	b.WriteString("\n\n")
-	b.WriteString(headerStyle.Render("esc back · q quit"))
+
+	if m.commanding {
+		b.WriteString(headerStyle.Render(":") + m.command + headerStyle.Render("▏  (enter run · esc cancel)"))
+	} else if m.commandMsg != "" {
+		b.WriteString(headerStyle.Render(m.commandMsg + "   ·   : rename <name> · esc back · q quit"))
+	} else {
+		b.WriteString(headerStyle.Render(": rename <name> · esc back · q quit"))
+	}
 	b.WriteByte('\n')
 	return appStyle.Render(b.String())
+}
+
+// indent prefixes every line of s with two spaces so conversation turns are set
+// off from their speaker label.
+func indent(s string) string {
+	return "  " + strings.ReplaceAll(s, "\n", "\n  ")
+}
+
+// orDim returns s, or a faint fallback when s is empty.
+func orDim(s, fallback string) string {
+	if s == "" {
+		return headerStyle.Render(fallback)
+	}
+	return s
 }

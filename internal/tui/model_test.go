@@ -731,6 +731,141 @@ func TestView_NoRunningAgentsHint(t *testing.T) {
 	}
 }
 
+func TestUpdate_ColonEntersCommandMode(t *testing.T) {
+	next, _ := Model{runs: threeRuns()}.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	if !next.(Model).commanding {
+		t.Error(": should enter command mode")
+	}
+}
+
+func TestCommandKey_TypesRunsAndCancels(t *testing.T) {
+	m := Model{runs: threeRuns(), commanding: true}
+	for _, r := range []string{"r", "e", "n", "a", "m", "e"} {
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(r)})
+		m = next.(Model)
+	}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m = next.(Model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")})
+	m = next.(Model)
+	if m.command != "rename z" {
+		t.Fatalf("command = %q", m.command)
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	if next.(Model).command != "rename " {
+		t.Errorf("backspace failed: %q", next.(Model).command)
+	}
+	esc, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if em := esc.(Model); em.commanding || em.command != "" {
+		t.Errorf("esc should cancel: %+v", em)
+	}
+	empty, _ := (Model{commanding: true}).Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	if empty.(Model).command != "" {
+		t.Errorf("backspace on empty should stay empty, got %q", empty.(Model).command)
+	}
+}
+
+func TestDispatch_RenameWritesOverlayAndReloads(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("AKUAKU_STATE_DIR", dir)
+	if err := state.Write(dir, state.Run{ID: "run-1", Name: "old", Status: state.StatusRunning}); err != nil {
+		t.Fatal(err)
+	}
+
+	m := Model{runs: []state.Run{{ID: "run-1", Name: "old", Status: state.StatusRunning}}, commanding: true, command: "rename brand new"}
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	nm := next.(Model)
+	if nm.commanding {
+		t.Error("enter should leave command mode")
+	}
+	if !strings.Contains(nm.commandMsg, "brand new") {
+		t.Errorf("commandMsg = %q", nm.commandMsg)
+	}
+	if cmd == nil {
+		t.Fatal("rename should return a reload command")
+	}
+	msg, ok := cmd().(runsMsg)
+	if !ok {
+		t.Fatalf("rename cmd returned %T", cmd())
+	}
+	if len(msg.runs) != 1 || msg.runs[0].Name != "brand new" {
+		t.Errorf("reloaded runs did not pick up the rename: %+v", msg.runs)
+	}
+}
+
+func TestDispatch_RenameWithoutNameShowsUsage(t *testing.T) {
+	next, cmd := (Model{runs: threeRuns(), commanding: true, command: "rename"}).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Error("a nameless rename should not act")
+	}
+	if !strings.Contains(next.(Model).commandMsg, "usage") {
+		t.Errorf("commandMsg = %q", next.(Model).commandMsg)
+	}
+}
+
+func TestDispatch_UnknownAndEmptyCommand(t *testing.T) {
+	unknown, _ := (Model{runs: threeRuns(), commanding: true, command: "frobnicate"}).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !strings.Contains(unknown.(Model).commandMsg, "unknown command") {
+		t.Errorf("commandMsg = %q", unknown.(Model).commandMsg)
+	}
+	empty, cmd := (Model{runs: threeRuns(), commanding: true, command: "   "}).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil || empty.(Model).commanding {
+		t.Errorf("empty command should be a no-op that closes the prompt")
+	}
+}
+
+func TestLoadRuns_AppliesNameOverlay(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("AKUAKU_STATE_DIR", dir)
+	if err := state.Write(dir, state.Run{ID: "run-1", Name: "original", Status: state.StatusRunning}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteName(dir, "run-1", "custom"); err != nil {
+		t.Fatal(err)
+	}
+	msg := loadRuns().(runsMsg)
+	if len(msg.runs) != 1 || msg.runs[0].Name != "custom" {
+		t.Errorf("overlay name not applied: %+v", msg.runs)
+	}
+}
+
+func TestView_FooterShowsCommandInputAndResult(t *testing.T) {
+	editing := Model{runs: threeRuns(), width: 100, commanding: true, command: "rename foo"}.View()
+	if !strings.Contains(editing, ":rename foo") {
+		t.Errorf("command input not shown, got:\n%s", editing)
+	}
+	result := Model{runs: threeRuns(), width: 100, commandMsg: "renamed to foo"}.View()
+	if !strings.Contains(result, "renamed to foo") {
+		t.Errorf("command result not shown, got:\n%s", result)
+	}
+}
+
+func TestView_DetailRendersAsConversation(t *testing.T) {
+	runs := []state.Run{{Name: "review", Backend: "claude", Status: state.StatusDone,
+		Task: "2 tips", Output: "1. small PRs"}}
+	out := Model{runs: runs, detail: true, showAll: true}.View()
+	for _, want := range []string{"You", "2 tips", "🗿 claude", "1. small PRs", "rename"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("conversation detail missing %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestView_DetailConversationFallbacksAndCommand(t *testing.T) {
+	runs := []state.Run{{Name: "ext", Backend: "claude", Status: state.StatusRunning, Source: "hook"}}
+	out := Model{runs: runs, detail: true, commanding: true, command: "rename x"}.View()
+	if !strings.Contains(out, "no prompt recorded") || !strings.Contains(out, "no output captured") {
+		t.Errorf("missing-content fallbacks not shown, got:\n%s", out)
+	}
+	if !strings.Contains(out, ":rename x") {
+		t.Errorf("command input not shown in detail, got:\n%s", out)
+	}
+	done := Model{runs: runs, detail: true, commandMsg: "renamed to x"}.View()
+	if !strings.Contains(done, "renamed to x") {
+		t.Errorf("command result not shown in detail, got:\n%s", done)
+	}
+}
+
 var errBoom = boomError("boom")
 
 type boomError string
