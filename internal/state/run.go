@@ -26,6 +26,7 @@ type Run struct {
 	Status    Status     `json:"status"`
 	Task      string     `json:"task"`
 	Model     string     `json:"model,omitempty"`
+	Source    string     `json:"source,omitempty"`
 	StartedAt time.Time  `json:"started_at"`
 	EndedAt   *time.Time `json:"ended_at"`
 	Tokens    int        `json:"tokens"`

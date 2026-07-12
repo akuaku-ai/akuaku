@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -15,6 +16,9 @@ type harness struct {
 	out, err      bytes.Buffer
 	launched      []launcher.Options
 	monitorCalled bool
+	hookEvents    []string
+	hookInput     string
+	installCalled bool
 }
 
 func newHarness(monitorErr, launchErr error) *harness {
@@ -25,8 +29,16 @@ func newHarness(monitorErr, launchErr error) *harness {
 			h.launched = append(h.launched, o)
 			return launchErr
 		},
-		Out: &h.out,
-		Err: &h.err,
+		Hook: func(event string, r io.Reader) error {
+			h.hookEvents = append(h.hookEvents, event)
+			b, _ := io.ReadAll(r)
+			h.hookInput = string(b)
+			return nil
+		},
+		HookInstall: func() error { h.installCalled = true; return nil },
+		In:          strings.NewReader(""),
+		Out:         &h.out,
+		Err:         &h.err,
 	}
 	return h
 }
@@ -131,6 +143,62 @@ func TestRun_UnknownCommandErrors(t *testing.T) {
 		t.Fatalf("code = %d, want 2", code)
 	}
 	if !strings.Contains(h.err.String(), "unknown command") {
+		t.Errorf("stderr = %q", h.err.String())
+	}
+}
+
+func TestRun_HookDispatchesEventAndStdin(t *testing.T) {
+	h := newHarness(nil, nil)
+	h.deps.In = strings.NewReader(`{"session_id":"s1"}`)
+	if code := Run([]string{"hook", "SessionStart"}, h.deps); code != 0 {
+		t.Fatalf("code = %d, want 0", code)
+	}
+	if len(h.hookEvents) != 1 || h.hookEvents[0] != "SessionStart" {
+		t.Errorf("events = %v", h.hookEvents)
+	}
+	if h.hookInput != `{"session_id":"s1"}` {
+		t.Errorf("stdin = %q", h.hookInput)
+	}
+}
+
+func TestRun_HookAlwaysExitsZeroEvenOnError(t *testing.T) {
+	h := newHarness(nil, nil)
+	h.deps.Hook = func(string, io.Reader) error { return errors.New("disk full") }
+	if code := Run([]string{"hook", "SessionEnd"}, h.deps); code != 0 {
+		t.Fatalf("a hook error must not disrupt the host session: code = %d", code)
+	}
+	if !strings.Contains(h.err.String(), "disk full") {
+		t.Errorf("the error should still be logged, stderr = %q", h.err.String())
+	}
+}
+
+func TestRun_HookWithoutEventErrors(t *testing.T) {
+	h := newHarness(nil, nil)
+	if code := Run([]string{"hook"}, h.deps); code != 2 {
+		t.Fatalf("code = %d, want 2", code)
+	}
+	if len(h.hookEvents) != 0 {
+		t.Error("should not dispatch without an event")
+	}
+}
+
+func TestRun_HookInstall(t *testing.T) {
+	h := newHarness(nil, nil)
+	if code := Run([]string{"hook", "install"}, h.deps); code != 0 {
+		t.Fatalf("code = %d, want 0", code)
+	}
+	if !h.installCalled {
+		t.Error("installer was not run")
+	}
+}
+
+func TestRun_HookInstallErrorExitsNonZero(t *testing.T) {
+	h := newHarness(nil, nil)
+	h.deps.HookInstall = func() error { return errors.New("permission denied") }
+	if code := Run([]string{"hook", "install"}, h.deps); code != 1 {
+		t.Fatalf("code = %d, want 1", code)
+	}
+	if !strings.Contains(h.err.String(), "permission denied") {
 		t.Errorf("stderr = %q", h.err.String())
 	}
 }

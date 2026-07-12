@@ -3,6 +3,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,6 +12,11 @@ import (
 
 	"github.com/akuaku-ai/akuaku/internal/state"
 )
+
+// dash marks a value the monitor cannot know. Sessions reflected from Claude
+// Code hooks report no token or cost usage, so both render as a dash rather than
+// a misleading zero.
+const dash = "—"
 
 // tickInterval is how often the monitor refreshes its view.
 const tickInterval = time.Second
@@ -98,6 +104,24 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%d:%02d", int(d/time.Minute), int(d/time.Second)%60)
 }
 
+// formatTokens renders a run's token count, or a dash for reflected sessions
+// whose usage Akuaku cannot observe.
+func formatTokens(run state.Run) string {
+	if run.Source == "hook" {
+		return dash
+	}
+	return strconv.Itoa(run.Tokens)
+}
+
+// formatCost renders a run's cost, or a dash for reflected sessions whose usage
+// Akuaku cannot observe.
+func formatCost(run state.Run) string {
+	if run.Source == "hook" {
+		return dash
+	}
+	return fmt.Sprintf("$%.2f", run.Cost)
+}
+
 // metrics holds the aggregate counters derived from the current runs.
 type metrics struct {
 	running int
@@ -148,9 +172,10 @@ func (m Model) View() string {
 			"NAME", "BACKEND", "STATUS", "DUR", "TOKENS", "COST")))
 		b.WriteByte('\n')
 		for _, run := range m.runs {
-			fmt.Fprintf(&b, "%-20.20s %-8s %-8s %8s %8d  $%6.2f\n",
+			fmt.Fprintf(&b, "%-20.20s %-8s %-8s %8s %8s %8s\n",
 				run.Name, run.Backend, run.Status,
-				formatDuration(duration(run, m.now)), run.Tokens, run.Cost)
+				formatDuration(duration(run, m.now)),
+				formatTokens(run), formatCost(run))
 		}
 		b.WriteByte('\n')
 	}

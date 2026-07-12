@@ -13,10 +13,13 @@ import (
 
 // Deps are the injectable behaviors the CLI drives.
 type Deps struct {
-	Monitor func() error
-	Launch  func(launcher.Options) error
-	Out     io.Writer
-	Err     io.Writer
+	Monitor     func() error
+	Launch      func(launcher.Options) error
+	Hook        func(event string, r io.Reader) error
+	HookInstall func() error
+	In          io.Reader
+	Out         io.Writer
+	Err         io.Writer
 }
 
 const usage = `akuaku — monitor and launch AI agents from the terminal
@@ -24,6 +27,8 @@ const usage = `akuaku — monitor and launch AI agents from the terminal
 usage:
   akuaku                                 start the monitor
   akuaku run <backend> <task> [flags]    launch an agent
+  akuaku hook install                    reflect external Claude sessions
+  akuaku hook <event>                    internal: called by Claude Code hooks
 
 flags:
   -m, --model <model>   model to use
@@ -44,6 +49,8 @@ func Run(args []string, deps Deps) int {
 	switch args[0] {
 	case "run":
 		return runCommand(args[1:], deps)
+	case "hook":
+		return hookCommand(args[1:], deps)
 	case "-h", "--help", "help":
 		fmt.Fprintln(deps.Out, usage)
 		return 0
@@ -51,6 +58,28 @@ func Run(args []string, deps Deps) int {
 		fmt.Fprintf(deps.Err, "akuaku: unknown command %q\n", args[0])
 		return 2
 	}
+}
+
+// hookCommand dispatches the `hook` subcommands. `hook install` wires Akuaku into
+// Claude Code's settings; `hook <event>` reflects a session event read from stdin
+// and always exits 0, since a hook must never disrupt the host Claude session.
+func hookCommand(args []string, deps Deps) int {
+	if len(args) >= 1 && args[0] == "install" {
+		if err := deps.HookInstall(); err != nil {
+			fmt.Fprintln(deps.Err, "akuaku:", err)
+			return 1
+		}
+		fmt.Fprintln(deps.Out, "akuaku: hooks installed; new Claude sessions will appear in the monitor")
+		return 0
+	}
+	if len(args) < 1 {
+		fmt.Fprintln(deps.Err, "akuaku: hook needs an event name")
+		return 2
+	}
+	if err := deps.Hook(args[0], deps.In); err != nil {
+		fmt.Fprintln(deps.Err, "akuaku:", err)
+	}
+	return 0
 }
 
 func runCommand(args []string, deps Deps) int {
