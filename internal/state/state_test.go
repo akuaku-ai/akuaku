@@ -273,6 +273,23 @@ func TestRun_SourceSerializesWhenSetAndOmittedWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestRun_PIDSerializesWhenSetAndOmittedWhenZero(t *testing.T) {
+	withPID, err := json.Marshal(Run{PID: 4242})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(withPID), `"pid":4242`) {
+		t.Errorf("pid not serialized: %s", withPID)
+	}
+	noPID, err := json.Marshal(Run{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(noPID), "pid") {
+		t.Errorf("a zero pid should be omitted: %s", noPID)
+	}
+}
+
 func TestRun_OutputSerializesWhenSetAndOmittedWhenEmpty(t *testing.T) {
 	withOutput, err := json.Marshal(Run{Output: "the answer"})
 	if err != nil {

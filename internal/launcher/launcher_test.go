@@ -11,9 +11,10 @@ import (
 	"github.com/akuaku-ai/akuaku/internal/state"
 )
 
-// fakeRunner returns fixed output for a subprocess.
+// fakeRunner returns fixed output for a subprocess and reports a fixed PID.
 func fakeRunner(stdout, stderr string, exitCode int, err error) commandRunner {
-	return func(string, []string) ([]byte, []byte, int, error) {
+	return func(_ string, _ []string, onStart func(int)) ([]byte, []byte, int, error) {
+		onStart(4242)
 		return []byte(stdout), []byte(stderr), exitCode, err
 	}
 }
@@ -46,8 +47,8 @@ func TestRun_SuccessRecordsDoneWithUsage(t *testing.T) {
 	if len(*written) != 2 {
 		t.Fatalf("expected running then terminal write, got %d", len(*written))
 	}
-	if (*written)[0].Status != state.StatusRunning {
-		t.Errorf("first write should be running, got %q", (*written)[0].Status)
+	if (*written)[0].Status != state.StatusRunning || (*written)[0].PID != 4242 {
+		t.Errorf("first write should be running with the PID, got %+v", (*written)[0])
 	}
 	done := (*written)[1]
 	if done.Status != state.StatusDone {
@@ -180,17 +181,21 @@ func TestRun_DefaultsNameToTask(t *testing.T) {
 }
 
 func TestExecRun_Success(t *testing.T) {
-	stdout, _, code, err := execRun("echo", []string{"hello"})
+	gotPID := 0
+	stdout, _, code, err := execRun("echo", []string{"hello"}, func(pid int) { gotPID = pid })
 	if err != nil || code != 0 {
 		t.Fatalf("echo failed: code %d, err %v", code, err)
 	}
 	if !strings.Contains(string(stdout), "hello") {
 		t.Errorf("stdout = %q", stdout)
 	}
+	if gotPID <= 0 {
+		t.Errorf("onStart should report a real PID, got %d", gotPID)
+	}
 }
 
 func TestExecRun_NonZeroExit(t *testing.T) {
-	_, _, code, err := execRun("false", nil)
+	_, _, code, err := execRun("false", nil, func(int) {})
 	if err != nil {
 		t.Fatalf("false should not error, got %v", err)
 	}
@@ -200,7 +205,7 @@ func TestExecRun_NonZeroExit(t *testing.T) {
 }
 
 func TestExecRun_CapturesStderr(t *testing.T) {
-	_, stderr, _, err := execRun("sh", []string{"-c", "echo oops 1>&2"})
+	_, stderr, _, err := execRun("sh", []string{"-c", "echo oops 1>&2"}, func(int) {})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -210,7 +215,9 @@ func TestExecRun_CapturesStderr(t *testing.T) {
 }
 
 func TestExecRun_StartFailure(t *testing.T) {
-	_, _, code, err := execRun("akuaku-does-not-exist-xyz", nil)
+	_, _, code, err := execRun("akuaku-does-not-exist-xyz", nil, func(int) {
+		t.Error("onStart must not be called when the process fails to start")
+	})
 	if err == nil {
 		t.Fatal("expected an error for a missing command")
 	}
