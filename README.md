@@ -39,7 +39,7 @@ go install github.com/akuaku-ai/akuaku/cmd/akuaku@latest
 "$(go env GOPATH)/bin/akuaku" setup   # adds akuaku to your PATH, checks backends
 ```
 
-Then restart your shell (or `source` your profile) and `akuaku` just works.
+Then restart your shell (or `source` your profile) and `akuaku` just works. To upgrade later, run `akuaku update` — no need to remember the install command.
 
 Or build from source:
 

@@ -20,6 +20,7 @@ type harness struct {
 	hookInput     string
 	installCalled bool
 	setupCalled   bool
+	updateCalled  bool
 }
 
 func newHarness(monitorErr, launchErr error) *harness {
@@ -38,6 +39,7 @@ func newHarness(monitorErr, launchErr error) *harness {
 		},
 		HookInstall: func() error { h.installCalled = true; return nil },
 		Setup:       func() error { h.setupCalled = true; return nil },
+		Update:      func() error { h.updateCalled = true; return nil },
 		In:          strings.NewReader(""),
 		Out:         &h.out,
 		Err:         &h.err,
@@ -222,6 +224,27 @@ func TestRun_SetupErrorExitsNonZero(t *testing.T) {
 		t.Fatalf("code = %d, want 1", code)
 	}
 	if !strings.Contains(h.err.String(), "cannot write profile") {
+		t.Errorf("stderr = %q", h.err.String())
+	}
+}
+
+func TestRun_Update(t *testing.T) {
+	h := newHarness(nil, nil)
+	if code := Run([]string{"update"}, h.deps); code != 0 {
+		t.Fatalf("code = %d, want 0", code)
+	}
+	if !h.updateCalled {
+		t.Error("update was not run")
+	}
+}
+
+func TestRun_UpdateErrorExitsNonZero(t *testing.T) {
+	h := newHarness(nil, nil)
+	h.deps.Update = func() error { return errors.New("go not found") }
+	if code := Run([]string{"update"}, h.deps); code != 1 {
+		t.Fatalf("code = %d, want 1", code)
+	}
+	if !strings.Contains(h.err.String(), "go not found") {
 		t.Errorf("stderr = %q", h.err.String())
 	}
 }
