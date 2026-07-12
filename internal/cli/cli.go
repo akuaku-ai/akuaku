@@ -18,6 +18,7 @@ type Deps struct {
 	Hook        func(event string, r io.Reader) error
 	HookInstall func() error
 	Setup       func() error
+	Update      func() error
 	In          io.Reader
 	Out         io.Writer
 	Err         io.Writer
@@ -29,6 +30,7 @@ usage:
   akuaku                                 start the monitor
   akuaku run <backend> <task> [flags]    launch an agent
   akuaku setup                           add akuaku to your PATH & check backends
+  akuaku update                          reinstall the latest version
   akuaku hook install                    reflect external Claude sessions
   akuaku hook <event>                    internal: called by Claude Code hooks
 
@@ -55,6 +57,12 @@ func Run(args []string, deps Deps) int {
 		return hookCommand(args[1:], deps)
 	case "setup":
 		if err := deps.Setup(); err != nil {
+			fmt.Fprintln(deps.Err, "akuaku:", err)
+			return 1
+		}
+		return 0
+	case "update":
+		if err := deps.Update(); err != nil {
 			fmt.Fprintln(deps.Err, "akuaku:", err)
 			return 1
 		}

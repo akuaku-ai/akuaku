@@ -22,6 +22,7 @@ import (
 	"github.com/akuaku-ai/akuaku/internal/setup"
 	"github.com/akuaku-ai/akuaku/internal/state"
 	"github.com/akuaku-ai/akuaku/internal/tui"
+	"github.com/akuaku-ai/akuaku/internal/updater"
 )
 
 func main() {
@@ -33,11 +34,22 @@ func main() {
 		},
 		HookInstall: installHooks,
 		Setup:       runSetup,
+		Update:      runUpdate,
 		In:          os.Stdin,
 		Out:         os.Stdout,
 		Err:         os.Stderr,
 	}
 	os.Exit(cli.Run(os.Args[1:], deps))
+}
+
+// runUpdate reinstalls Akuaku from source. GOPROXY=direct bypasses the module
+// proxy cache so the update always reflects the newest published build.
+func runUpdate() error {
+	return updater.Run(func() ([]byte, error) {
+		cmd := exec.Command("go", "install", updater.Module)
+		cmd.Env = append(os.Environ(), "GOPROXY=direct")
+		return cmd.CombinedOutput()
+	}, os.Stdout)
 }
 
 func runMonitor() error {
