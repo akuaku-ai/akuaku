@@ -28,6 +28,14 @@ press q to quit
 go install github.com/akuaku-ai/akuaku/cmd/akuaku@latest
 ```
 
+`go install` drops the binary in `$(go env GOPATH)/bin`, which is often not on your `PATH` — so the first run fixes that for you:
+
+```sh
+"$(go env GOPATH)/bin/akuaku" setup   # adds akuaku to your PATH, checks backends
+```
+
+Then restart your shell (or `source` your profile) and `akuaku` just works.
+
 Or build from source:
 
 ```sh
@@ -36,7 +44,7 @@ cd akuaku
 make build   # produces bin/akuaku
 ```
 
-Requires Go 1.24+. To launch agents you also need the `claude`, `codex`, and/or `ollama` CLIs installed and logged in.
+Requires Go 1.24+. To launch agents you also need the `claude`, `codex`, and/or `ollama` CLIs installed and logged in — `akuaku setup` tells you which are missing.
 
 ## Usage
 
