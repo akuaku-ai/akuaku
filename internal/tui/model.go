@@ -3,6 +3,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -51,13 +52,16 @@ func loadRuns() tea.Msg {
 
 // Model is the root Bubble Tea model for the monitor. It holds only what it
 // reads from the state directory; it never writes there. cursor is the selected
-// row and detail toggles the single-run view.
+// row, detail toggles the single-run view, and width/height track the terminal
+// size so the dashboard fills it.
 type Model struct {
 	runs   []state.Run
 	now    time.Time
 	err    error
 	cursor int
 	detail bool
+	width  int
+	height int
 }
 
 // New returns a Model in its initial state.
@@ -93,16 +97,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.detail = false
 		}
 		return m, nil
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		return m, nil
 	case tickMsg:
 		m.now = time.Time(msg)
 		return m, tea.Batch(tickCmd(), loadRuns)
 	case runsMsg:
+		sortRuns(msg.runs)
 		m.runs = msg.runs
 		m.err = msg.err
 		m.cursor = clamp(m.cursor, len(m.runs))
 		return m, nil
 	}
 	return m, nil
+}
+
+// sortRuns orders runs so live ones lead the list and, within each group, the
+// most recently started appears first.
+func sortRuns(runs []state.Run) {
+	sort.SliceStable(runs, func(i, j int) bool {
+		if ri, rj := runningRank(runs[i].Status), runningRank(runs[j].Status); ri != rj {
+			return ri < rj
+		}
+		return runs[i].StartedAt.After(runs[j].StartedAt)
+	})
+}
+
+// runningRank sorts running runs ahead of every terminal state.
+func runningRank(s state.Status) int {
+	if s == state.StatusRunning {
+		return 0
+	}
+	return 1
 }
 
 // clamp keeps the cursor within [0, length) so a shrinking run list never leaves
@@ -180,13 +208,34 @@ func computeMetrics(runs []state.Run) metrics {
 	return m
 }
 
+// The dashboard palette: a stone-and-aqua signature with status-driven row color.
 var (
-	titleStyle  = lipgloss.NewStyle().Bold(true)
+	colorAccent   = lipgloss.Color("44")  // aqua — the Akuaku accent
+	colorStone    = lipgloss.Color("240") // border gray
+	colorRunning  = lipgloss.Color("42")  // green — live
+	colorError    = lipgloss.Color("203") // red — failed
+	colorDone     = lipgloss.Color("246") // dim gray — finished
+	colorSelected = lipgloss.Color("236") // subtle highlight
+
+	titleStyle  = lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
 	headerStyle = lipgloss.NewStyle().Faint(true)
+	boxStyle    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colorStone).Padding(0, 1)
+)
+
+// Fixed table column widths; the name column flexes to fill the terminal.
+const (
+	backendW  = 8
+	modelW    = 12
+	durW      = 5
+	tokensW   = 8
+	costW     = 8
+	minNameW  = 10
+	minInner  = 20
+	fixedCols = 2 + 6 + backendW + modelW + durW + tokensW + costW // marker+glyph, six gaps, fixed columns
 )
 
 // View renders the current frame: the single-run detail when a run is selected
-// and open, otherwise the list of agents.
+// and open, otherwise the full-width dashboard.
 func (m Model) View() string {
 	if m.detail && len(m.runs) > 0 {
 		return m.detailView()
@@ -194,42 +243,132 @@ func (m Model) View() string {
 	return m.listView()
 }
 
-// listView renders the title, an optional error, the agent table (or an
-// empty-state hint) with the selected row marked, and the metrics panel.
+// listView renders the full-width dashboard: an overview strip, the agent table,
+// and a keybinding footer.
 func (m Model) listView() string {
-	var b strings.Builder
-	b.WriteString(titleStyle.Render("Akuaku 🗿"))
-	b.WriteString("\n\n")
-
-	if m.err != nil {
-		fmt.Fprintf(&b, "error reading state: %s\n\n", m.err)
+	width := m.width
+	if width <= 0 {
+		width = 80
 	}
+	sections := []string{
+		m.overview(computeMetrics(m.runs)),
+		m.table(width),
+		headerStyle.Render("↑/↓ move · enter open · q quit"),
+	}
+	return strings.Join(sections, "\n")
+}
+
+// overview is the top strip: the brand, the run counts, and the totals.
+func (m Model) overview(mt metrics) string {
+	line := titleStyle.Render("Akuaku 🗿") + fmt.Sprintf("   running %d · done %d · err %d   ·   %s tok · $%.2f",
+		mt.running, mt.done, mt.errored, humanizeTokens(mt.tokens), mt.cost)
+	if m.err != nil {
+		line += fmt.Sprintf("\nerror reading state: %s", m.err)
+	}
+	return line
+}
+
+// table renders the bordered agent list sized to width, with the selected row
+// marked and each row colored by status.
+func (m Model) table(width int) string {
+	innerW := width - 4
+	if innerW < minInner {
+		innerW = minInner
+	}
+	nameW := innerW - fixedCols
+	if nameW < minNameW {
+		nameW = minNameW
+	}
+
+	var b strings.Builder
+	live := headerStyle.Render("● live")
+	b.WriteString(padRight(fmt.Sprintf("Agents (%d)", len(m.runs)), innerW-lipgloss.Width(live)))
+	b.WriteString(live)
 
 	if len(m.runs) == 0 {
-		b.WriteString("no agents yet — launch one with `akuaku run`\n\n")
+		b.WriteString("\nno agents yet — launch one with `akuaku run`")
 	} else {
-		b.WriteString(headerStyle.Render(fmt.Sprintf("  %-20s %-8s %-8s %8s %8s %8s",
-			"NAME", "BACKEND", "STATUS", "DUR", "TOKENS", "COST")))
 		b.WriteByte('\n')
+		b.WriteString(headerStyle.Render(formatRow(" ", " ", "NAME", "BACKEND", "MODEL", "DUR", "TOKENS", "COST", nameW)))
 		for i, run := range m.runs {
-			marker := "  "
+			marker := " "
 			if i == m.cursor {
-				marker = "> "
+				marker = ">"
 			}
-			fmt.Fprintf(&b, "%s%-20.20s %-8s %-8s %8s %8s %8s\n",
-				marker, run.Name, run.Backend, run.Status,
-				formatDuration(duration(run, m.now)),
-				formatTokens(run), formatCost(run))
+			row := formatRow(marker, statusGlyph(run.Status), run.Name, run.Backend, run.Model,
+				formatDuration(duration(run, m.now)), formatTokens(run), formatCost(run), nameW)
+			b.WriteByte('\n')
+			b.WriteString(rowStyle(run.Status, i == m.cursor).Render(row))
 		}
-		b.WriteByte('\n')
 	}
+	return boxStyle.Width(width - 2).Render(b.String())
+}
 
-	mt := computeMetrics(m.runs)
-	fmt.Fprintf(&b, "running: %d  ok: %d  err: %d  tokens: %d  cost: $%.2f\n",
-		mt.running, mt.done, mt.errored, mt.tokens, mt.cost)
-	b.WriteString(headerStyle.Render("↑/↓ move · enter details · q quit"))
-	b.WriteByte('\n')
-	return b.String()
+// formatRow lays a run's cells into fixed columns; name flexes to nameW.
+func formatRow(marker, glyph, name, backend, model, dur, tokens, cost string, nameW int) string {
+	return fmt.Sprintf("%s%s %s %s %s %s %s %s",
+		marker, glyph,
+		padRight(name, nameW), padRight(backend, backendW), padRight(model, modelW),
+		padLeft(dur, durW), padLeft(tokens, tokensW), padLeft(cost, costW))
+}
+
+// rowStyle colors a row by status and highlights the selected one.
+func rowStyle(status state.Status, selected bool) lipgloss.Style {
+	style := lipgloss.NewStyle()
+	switch status {
+	case state.StatusRunning:
+		style = style.Foreground(colorRunning)
+	case state.StatusError:
+		style = style.Foreground(colorError)
+	default:
+		style = style.Foreground(colorDone)
+	}
+	if selected {
+		style = style.Background(colorSelected).Bold(true)
+	}
+	return style
+}
+
+// statusGlyph is the leading status marker for a run.
+func statusGlyph(s state.Status) string {
+	switch s {
+	case state.StatusRunning:
+		return "●"
+	case state.StatusError:
+		return "✖"
+	default:
+		return "✔"
+	}
+}
+
+// humanizeTokens renders large token counts compactly (1.5k, 2.5M).
+func humanizeTokens(n int) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fk", float64(n)/1_000)
+	default:
+		return strconv.Itoa(n)
+	}
+}
+
+// padRight left-aligns s in a field of w runes, truncating if it overflows.
+func padRight(s string, w int) string {
+	r := []rune(s)
+	if len(r) > w {
+		return string(r[:w])
+	}
+	return s + strings.Repeat(" ", w-len(r))
+}
+
+// padLeft right-aligns s in a field of w runes, truncating if it overflows.
+func padLeft(s string, w int) string {
+	r := []rune(s)
+	if len(r) > w {
+		return string(r[:w])
+	}
+	return strings.Repeat(" ", w-len(r)) + s
 }
 
 // detailView renders the selected run: its metadata, its usage, and either the
