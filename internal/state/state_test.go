@@ -241,3 +241,67 @@ func TestReadDir_ParsesValidAndSkipsTheRest(t *testing.T) {
 		t.Fatalf("expected only the valid run, got %+v", runs)
 	}
 }
+
+func TestRun_SourceSerializesWhenSetAndOmittedWhenEmpty(t *testing.T) {
+	withSource, err := json.Marshal(Run{Source: "hook"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(withSource), `"source":"hook"`) {
+		t.Errorf("source not serialized: %s", withSource)
+	}
+
+	noSource, err := json.Marshal(Run{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(noSource), "source") {
+		t.Errorf("empty source should be omitted: %s", noSource)
+	}
+}
+
+func TestRead_ReturnsStoredRun(t *testing.T) {
+	dir := t.TempDir()
+	if err := Write(dir, Run{ID: "claude-1-a", Status: StatusRunning, Source: "hook"}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, found, err := Read(dir, "claude-1-a")
+	if err != nil || !found {
+		t.Fatalf("Read: found=%v err=%v", found, err)
+	}
+	if got.ID != "claude-1-a" || got.Source != "hook" {
+		t.Errorf("wrong run: %+v", got)
+	}
+}
+
+func TestRead_MissingIsNotFound(t *testing.T) {
+	got, found, err := Read(t.TempDir(), "nope")
+	if err != nil {
+		t.Fatalf("missing run should not error: %v", err)
+	}
+	if found {
+		t.Errorf("expected not found, got %+v", got)
+	}
+}
+
+func TestRead_ReadErrorPropagates(t *testing.T) {
+	dir := t.TempDir()
+	// Occupy the path with a directory so ReadFile fails with a non-ENOENT error.
+	if err := os.Mkdir(filepath.Join(dir, "x.json"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := Read(dir, "x"); err == nil {
+		t.Fatal("expected a read error")
+	}
+}
+
+func TestRead_UnparseableErrors(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "x.json"), []byte("{bad"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := Read(dir, "x"); err == nil {
+		t.Fatal("expected an unmarshal error")
+	}
+}

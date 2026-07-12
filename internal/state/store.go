@@ -73,3 +73,19 @@ func ReadDir(dir string) ([]Run, error) {
 	}
 	return runs, nil
 }
+
+// Read returns the run stored as <id>.json in dir. found is false when no such
+// run exists; a parse or read failure returns an error.
+func Read(dir, id string) (run Run, found bool, err error) {
+	data, err := os.ReadFile(filepath.Join(dir, id+".json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return Run{}, false, nil
+	}
+	if err != nil {
+		return Run{}, false, err
+	}
+	if err := json.Unmarshal(data, &run); err != nil {
+		return Run{}, false, err
+	}
+	return run, true, nil
+}
