@@ -220,18 +220,26 @@ var (
 	titleStyle  = lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
 	headerStyle = lipgloss.NewStyle().Faint(true)
 	boxStyle    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colorStone).Padding(0, 1)
+	appStyle    = lipgloss.NewStyle().Padding(outerPadY, outerPadX)
 )
 
-// Fixed table column widths; the name column flexes to fill the terminal.
+// Fixed table column widths; the name column flexes up to maxNameW.
 const (
 	backendW  = 8
-	modelW    = 12
+	modelW    = 15
 	durW      = 5
 	tokensW   = 8
 	costW     = 8
 	minNameW  = 10
+	maxNameW  = 36
 	minInner  = 20
 	fixedCols = 2 + 6 + backendW + modelW + durW + tokensW + costW // marker+glyph, six gaps, fixed columns
+	// maxDashW caps how wide the dashboard grows so an ultra-wide terminal does
+	// not stretch it into a sea of empty space; the box border and padding add 4.
+	maxDashW = fixedCols + maxNameW + 4
+	// outerPadX/Y frame the whole dashboard so it never sits flush to the edges.
+	outerPadX = 2
+	outerPadY = 1
 )
 
 // View renders the current frame: the single-run detail when a run is selected
@@ -243,25 +251,52 @@ func (m Model) View() string {
 	return m.listView()
 }
 
-// listView renders the full-width dashboard: an overview strip, the agent table,
-// and a keybinding footer.
+// listView renders the dashboard: an overview strip, the agent table, and a
+// keybinding footer, capped in width and framed by outer padding.
 func (m Model) listView() string {
-	width := m.width
+	width := m.width - 2*outerPadX
 	if width <= 0 {
 		width = 80
 	}
+	if width > maxDashW {
+		width = maxDashW
+	}
+	// Shrink to the widest name so short lists stay dense instead of leaving a
+	// gap between the name and the metric columns.
+	nameW := longestName(m.runs)
+	if nameW < minNameW {
+		nameW = minNameW
+	}
+	if nameW > maxNameW {
+		nameW = maxNameW
+	}
+	if needed := fixedCols + nameW + 4; needed < width {
+		width = needed
+	}
+
 	sections := []string{
 		m.header(width, computeMetrics(m.runs)),
 		m.table(width),
 		headerStyle.Render("↑/↓ move · enter open · q quit"),
 	}
-	return strings.Join(sections, "\n")
+	return appStyle.Render(strings.Join(sections, "\n"))
+}
+
+// longestName is the rune length of the widest run name, sizing the name column.
+func longestName(runs []state.Run) int {
+	n := 0
+	for _, run := range runs {
+		if l := len([]rune(run.Name)); l > n {
+			n = l
+		}
+	}
+	return n
 }
 
 // header is the k9s-style top strip: run stats on the left and the Akuaku logo
 // right-aligned. The logo is the brand mark that replaces the emoji.
 func (m Model) header(width int, mt metrics) string {
-	logo := logoLines()
+	logo := logoBlock()
 	logoW := 0
 	for _, art := range logo {
 		if w := lipgloss.Width(art); w > logoW {
@@ -287,7 +322,7 @@ func (m Model) header(width int, mt metrics) string {
 		}
 		b.WriteString(stat)
 		b.WriteString(strings.Repeat(" ", gap))
-		b.WriteString(titleStyle.Render(art))
+		b.WriteString(art)
 		if i < len(logo)-1 {
 			b.WriteByte('\n')
 		}
@@ -298,13 +333,34 @@ func (m Model) header(width int, mt metrics) string {
 	return b.String()
 }
 
-// logoLines is the Akuaku brand mark: the wordmark in block characters over a
-// feathered signature.
-func logoLines() []string {
-	return []string{
+// logoBlock is the Akuaku brand mark: a colored tiki mask beside the wordmark in
+// block characters over a feathered signature. Each line is pre-styled, so the
+// caller measures it with lipgloss.Width.
+func logoBlock() []string {
+	word := lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
+	rows := []string{
 		"▄▀█ █▄▀ █ █ ▄▀█ █▄▀ █ █",
 		"█▀█ █▀▄ █▄█ █▀█ █▀▄ █▄█",
 		`\|/ akuaku \|/`,
+	}
+	mask := maskLines()
+	block := make([]string, len(rows))
+	for i := range rows {
+		block[i] = mask[i] + "  " + word.Render(rows[i])
+	}
+	return block
+}
+
+// maskLines draws a small, colorful tiki mask (feathers, eyes, mouth) — Akuaku's
+// face. Every line is five display columns wide so it aligns beside the wordmark.
+func maskLines() []string {
+	paint := func(code, s string) string {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(code)).Render(s)
+	}
+	return []string{
+		" " + paint("99", `\`) + paint("220", "|") + paint("208", "/") + " ",
+		paint("130", "(") + paint("220", "●") + " " + paint("220", "●") + paint("130", ")"),
+		" " + paint("196", "╰—╯") + " ",
 	}
 }
 
@@ -438,5 +494,5 @@ func (m Model) detailView() string {
 	b.WriteString("\n\n")
 	b.WriteString(headerStyle.Render("esc back · q quit"))
 	b.WriteByte('\n')
-	return b.String()
+	return appStyle.Render(b.String())
 }
