@@ -65,7 +65,7 @@ By default the list shows only **running** agents; press `a` to toggle the full 
 
 Press `/` to filter the list as you type — matching name or model. Prefix the query with `-n ` or `-m ` to match only the name or only the model (e.g. `-m opus`). `Enter` applies the filter, `Esc` clears it.
 
-Press `:` for commands on the selected agent. `:rename <name>` gives it a custom label (stored as an overlay, so the run's own state is never touched).
+Press `:` for commands on the selected agent. `:rename <name>` gives it a custom label (stored as an overlay, so the run's own state is never touched). `:kill` stops a running agent Akuaku launched (it signals the recorded process); reflected sessions have no process to kill.
 
 Launch an agent:
 

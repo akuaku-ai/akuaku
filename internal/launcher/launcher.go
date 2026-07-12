@@ -17,9 +17,10 @@ import (
 	"github.com/akuaku-ai/akuaku/internal/state"
 )
 
-// commandRunner executes name with args and returns captured output, the process
-// exit code, and a start error (nil once the process actually ran).
-type commandRunner func(name string, args []string) (stdout, stderr []byte, exitCode int, err error)
+// commandRunner executes name with args, invoking onStart with the child PID
+// once the process is running, and returns captured output, the process exit
+// code, and a start error (nil once the process actually ran).
+type commandRunner func(name string, args []string, onStart func(pid int)) (stdout, stderr []byte, exitCode int, err error)
 
 // Options configures a single run.
 type Options struct {
@@ -75,13 +76,20 @@ func (l *Launcher) Run(opts Options) error {
 		Model:     opts.Model,
 		StartedAt: started,
 	}
-	if err := l.write(opts.Dir, run); err != nil {
-		return err
-	}
 	fmt.Fprintf(l.out, "running %s…\n", opts.Backend)
 
+	// Record the running run once the process starts, so its PID is on disk and
+	// the monitor can kill it. A start failure never calls onStart and falls
+	// through to the terminal write below.
 	name, args := b.Command(opts.Task, opts.Model)
-	stdout, stderr, exitCode, runErr := l.run(name, args)
+	var writeErr error
+	stdout, stderr, exitCode, runErr := l.run(name, args, func(pid int) {
+		run.PID = pid
+		writeErr = l.write(opts.Dir, run)
+	})
+	if writeErr != nil {
+		return writeErr
+	}
 
 	ended := l.now()
 	run.EndedAt = &ended
@@ -131,25 +139,36 @@ func errorMessage(runErr error, stderr []byte) string {
 	return "process exited with a non-zero status"
 }
 
-// execRun runs a real subprocess, capturing stdout and stderr. A non-zero exit
-// is reported through exitCode with a nil error; only a failure to start the
-// process returns an error.
-func execRun(name string, args []string) ([]byte, []byte, int, error) {
+// execRun runs a real subprocess, capturing stdout and stderr and reporting the
+// child PID through onStart once it is running. A non-zero exit is reported
+// through exitCode with a nil error; only a failure to start returns an error
+// (and never calls onStart).
+func execRun(name string, args []string, onStart func(pid int)) ([]byte, []byte, int, error) {
 	cmd := exec.Command(name, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
-	exitCode := 0
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			exitCode = exitErr.ExitCode()
-			err = nil
-		} else {
-			exitCode = -1
-		}
+	if err := cmd.Start(); err != nil {
+		code, e := classifyExit(err)
+		return nil, nil, code, e
 	}
-	return stdout.Bytes(), stderr.Bytes(), exitCode, err
+	onStart(cmd.Process.Pid)
+
+	code, e := classifyExit(cmd.Wait())
+	return stdout.Bytes(), stderr.Bytes(), code, e
+}
+
+// classifyExit maps a start or wait error to an exit code: 0 on success, the
+// process's own code for a normal non-zero exit (including -1 when signaled), or
+// -1 for a failure to start.
+func classifyExit(err error) (int, error) {
+	if err == nil {
+		return 0, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode(), nil
+	}
+	return -1, err
 }

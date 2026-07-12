@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -205,6 +206,22 @@ func (m Model) dispatch(command string) (tea.Model, tea.Cmd) {
 		id := m.visible()[m.cursor].ID
 		m.commandMsg = "renamed to " + name
 		return m, renameCmd(id, name)
+	case "kill":
+		if m.cursor >= len(m.visible()) {
+			m.commandMsg = "no agent selected"
+			return m, nil
+		}
+		run := m.visible()[m.cursor]
+		switch {
+		case run.Status != state.StatusRunning:
+			m.commandMsg = "only running agents can be killed"
+		case run.PID == 0:
+			m.commandMsg = "can't kill this agent — no process (a reflected session?)"
+		default:
+			m.commandMsg = "killing " + run.Name
+			return m, killCmd(run.PID)
+		}
+		return m, nil
 	default:
 		m.commandMsg = "unknown command: " + fields[0]
 		return m, nil
@@ -215,6 +232,21 @@ func (m Model) dispatch(command string) (tea.Model, tea.Cmd) {
 func renameCmd(id, name string) tea.Cmd {
 	return func() tea.Msg {
 		_ = state.WriteName(state.Dir(), id, name)
+		return loadRuns()
+	}
+}
+
+// killProcess signals a process to terminate. It is a seam so the kill flow can
+// be tested without terminating unrelated processes.
+var killProcess = func(pid int) error {
+	return syscall.Kill(pid, syscall.SIGTERM)
+}
+
+// killCmd terminates the agent process with the given PID, then reloads so its
+// new terminal state (recorded by its launcher) shows.
+func killCmd(pid int) tea.Cmd {
+	return func() tea.Msg {
+		_ = killProcess(pid)
 		return loadRuns()
 	}
 }
@@ -702,9 +734,9 @@ func (m Model) detailView() string {
 	if m.commanding {
 		b.WriteString(headerStyle.Render(":") + m.command + headerStyle.Render("▏  (enter run · esc cancel)"))
 	} else if m.commandMsg != "" {
-		b.WriteString(headerStyle.Render(m.commandMsg + "   ·   : rename <name> · esc back · q quit"))
+		b.WriteString(headerStyle.Render(m.commandMsg + "   ·   : rename · : kill · esc back · q quit"))
 	} else {
-		b.WriteString(headerStyle.Render(": rename <name> · esc back · q quit"))
+		b.WriteString(headerStyle.Render(": rename · : kill · esc back · q quit"))
 	}
 	b.WriteByte('\n')
 	return appStyle.Render(b.String())

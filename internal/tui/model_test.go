@@ -2,6 +2,7 @@ package tui
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -863,6 +864,61 @@ func TestView_DetailConversationFallbacksAndCommand(t *testing.T) {
 	done := Model{runs: runs, detail: true, commandMsg: "renamed to x"}.View()
 	if !strings.Contains(done, "renamed to x") {
 		t.Errorf("command result not shown in detail, got:\n%s", done)
+	}
+}
+
+func TestDispatch_KillSignalsRunningAgent(t *testing.T) {
+	t.Setenv("AKUAKU_STATE_DIR", t.TempDir())
+	original := killProcess
+	var killed int
+	killProcess = func(pid int) error { killed = pid; return nil }
+	defer func() { killProcess = original }()
+
+	runs := []state.Run{{ID: "r", Name: "runaway", Status: state.StatusRunning, PID: 9999}}
+	next, cmd := (Model{runs: runs, commanding: true, command: "kill"}).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !strings.Contains(next.(Model).commandMsg, "killing") {
+		t.Errorf("commandMsg = %q", next.(Model).commandMsg)
+	}
+	if cmd == nil {
+		t.Fatal("kill should return a command")
+	}
+	if _, ok := cmd().(runsMsg); !ok {
+		t.Fatalf("kill cmd returned %T", cmd())
+	}
+	if killed != 9999 {
+		t.Errorf("killed PID = %d, want 9999", killed)
+	}
+}
+
+func TestDispatch_KillRefusesNonRunningNoPIDAndNoSelection(t *testing.T) {
+	done := []state.Run{{ID: "d", Status: state.StatusDone, PID: 1, Name: "old"}}
+	m1, cmd1 := (Model{runs: done, showAll: true, commanding: true, command: "kill"}).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd1 != nil || !strings.Contains(m1.(Model).commandMsg, "only running") {
+		t.Errorf("done run: msg = %q", m1.(Model).commandMsg)
+	}
+
+	hook := []state.Run{{ID: "h", Status: state.StatusRunning, Source: "hook", Name: "ext"}} // PID 0
+	m2, cmd2 := (Model{runs: hook, commanding: true, command: "kill"}).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd2 != nil || !strings.Contains(m2.(Model).commandMsg, "no process") {
+		t.Errorf("hook run: msg = %q", m2.(Model).commandMsg)
+	}
+
+	m3, cmd3 := (Model{commanding: true, command: "kill"}).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd3 != nil || !strings.Contains(m3.(Model).commandMsg, "no agent selected") {
+		t.Errorf("no selection: msg = %q", m3.(Model).commandMsg)
+	}
+}
+
+func TestKillProcess_TerminatesRealProcess(t *testing.T) {
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := killProcess(cmd.Process.Pid); err != nil {
+		t.Fatalf("killProcess: %v", err)
+	}
+	if err := cmd.Wait(); err == nil {
+		t.Error("expected the process to be terminated")
 	}
 }
 
