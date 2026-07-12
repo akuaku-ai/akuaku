@@ -72,10 +72,20 @@ func TestRun_JSONRoundTripPreservesTerminalFields(t *testing.T) {
 	}
 }
 
-func TestDir_DefaultsToState(t *testing.T) {
+func TestDir_DefaultsToHomeAkuakuState(t *testing.T) {
 	t.Setenv(envStateDir, "")
+	t.Setenv("HOME", "/tmp/fake-home")
+	want := filepath.Join("/tmp/fake-home", ".akuaku", "state")
+	if got := Dir(); got != want {
+		t.Errorf("Dir() = %q, want %q", got, want)
+	}
+}
+
+func TestDir_FallsBackWhenHomeUnavailable(t *testing.T) {
+	t.Setenv(envStateDir, "")
+	t.Setenv("HOME", "")
 	if got := Dir(); got != defaultStateDir {
-		t.Errorf("Dir() = %q, want %q", got, defaultStateDir)
+		t.Errorf("Dir() = %q, want fallback %q", got, defaultStateDir)
 	}
 }
 

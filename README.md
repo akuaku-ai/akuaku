@@ -104,7 +104,7 @@ Because the state JSON is the only channel, anything can be a producer — `akua
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `AKUAKU_STATE_DIR` | `./state` | Directory where runs are read and written |
+| `AKUAKU_STATE_DIR` | `~/.akuaku/state` | Directory where runs are read and written |
 
 ## Roadmap
 
