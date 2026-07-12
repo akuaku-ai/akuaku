@@ -19,6 +19,7 @@ type harness struct {
 	hookEvents    []string
 	hookInput     string
 	installCalled bool
+	setupCalled   bool
 }
 
 func newHarness(monitorErr, launchErr error) *harness {
@@ -36,6 +37,7 @@ func newHarness(monitorErr, launchErr error) *harness {
 			return nil
 		},
 		HookInstall: func() error { h.installCalled = true; return nil },
+		Setup:       func() error { h.setupCalled = true; return nil },
 		In:          strings.NewReader(""),
 		Out:         &h.out,
 		Err:         &h.err,
@@ -199,6 +201,27 @@ func TestRun_HookInstallErrorExitsNonZero(t *testing.T) {
 		t.Fatalf("code = %d, want 1", code)
 	}
 	if !strings.Contains(h.err.String(), "permission denied") {
+		t.Errorf("stderr = %q", h.err.String())
+	}
+}
+
+func TestRun_Setup(t *testing.T) {
+	h := newHarness(nil, nil)
+	if code := Run([]string{"setup"}, h.deps); code != 0 {
+		t.Fatalf("code = %d, want 0", code)
+	}
+	if !h.setupCalled {
+		t.Error("setup was not run")
+	}
+}
+
+func TestRun_SetupErrorExitsNonZero(t *testing.T) {
+	h := newHarness(nil, nil)
+	h.deps.Setup = func() error { return errors.New("cannot write profile") }
+	if code := Run([]string{"setup"}, h.deps); code != 1 {
+		t.Fatalf("code = %d, want 1", code)
+	}
+	if !strings.Contains(h.err.String(), "cannot write profile") {
 		t.Errorf("stderr = %q", h.err.String())
 	}
 }
