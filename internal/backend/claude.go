@@ -15,10 +15,12 @@ func (claudeBackend) Command(task, model string) (string, []string) {
 	return "claude", args
 }
 
-// Parse reads Claude's single JSON result object. Tokens are the sum of input
-// and output tokens; cost is the reported total in USD.
-func (claudeBackend) Parse(stdout, _ []byte) (int, float64) {
+// Parse reads Claude's single JSON result object: the answer is the `result`
+// field, tokens are the sum of input and output tokens, and cost is the reported
+// total in USD.
+func (claudeBackend) Parse(stdout, _ []byte) Output {
 	var result struct {
+		Result       string  `json:"result"`
 		TotalCostUSD float64 `json:"total_cost_usd"`
 		Usage        struct {
 			InputTokens  int `json:"input_tokens"`
@@ -26,7 +28,11 @@ func (claudeBackend) Parse(stdout, _ []byte) (int, float64) {
 		} `json:"usage"`
 	}
 	if err := json.Unmarshal(stdout, &result); err != nil {
-		return 0, 0
+		return Output{}
 	}
-	return result.Usage.InputTokens + result.Usage.OutputTokens, result.TotalCostUSD
+	return Output{
+		Text:   result.Result,
+		Tokens: result.Usage.InputTokens + result.Usage.OutputTokens,
+		Cost:   result.TotalCostUSD,
+	}
 }

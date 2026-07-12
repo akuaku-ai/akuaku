@@ -270,6 +270,24 @@ func TestRun_SourceSerializesWhenSetAndOmittedWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestRun_OutputSerializesWhenSetAndOmittedWhenEmpty(t *testing.T) {
+	withOutput, err := json.Marshal(Run{Output: "the answer"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(withOutput), `"output":"the answer"`) {
+		t.Errorf("output not serialized: %s", withOutput)
+	}
+
+	noOutput, err := json.Marshal(Run{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(noOutput), "output") {
+		t.Errorf("empty output should be omitted: %s", noOutput)
+	}
+}
+
 func TestRead_ReturnsStoredRun(t *testing.T) {
 	dir := t.TempDir()
 	if err := Write(dir, Run{ID: "claude-1-a", Status: StatusRunning, Source: "hook"}); err != nil {

@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"crypto/rand"
 	"errors"
+	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 	"time"
@@ -29,22 +31,24 @@ type Options struct {
 }
 
 // Launcher records agent runs. Its dependencies are injectable so the lifecycle
-// can be tested without real subprocesses, clock, or randomness.
+// can be tested without real subprocesses, clock, randomness, or terminal.
 type Launcher struct {
 	run    commandRunner
 	write  func(dir string, run state.Run) error
 	now    func() time.Time
 	suffix func() (string, error)
+	out    io.Writer
 }
 
 // New returns a Launcher wired to real subprocess execution, the system clock,
-// and cryptographic randomness.
-func New() *Launcher {
+// and cryptographic randomness, reporting progress and the answer to out.
+func New(out io.Writer) *Launcher {
 	return &Launcher{
 		run:    execRun,
 		write:  state.Write,
 		now:    time.Now,
 		suffix: func() (string, error) { return state.RandomSuffix(rand.Reader) },
+		out:    out,
 	}
 }
 
@@ -74,6 +78,7 @@ func (l *Launcher) Run(opts Options) error {
 	if err := l.write(opts.Dir, run); err != nil {
 		return err
 	}
+	fmt.Fprintf(l.out, "running %s…\n", opts.Backend)
 
 	name, args := b.Command(opts.Task, opts.Model)
 	stdout, stderr, exitCode, runErr := l.run(name, args)
@@ -81,14 +86,30 @@ func (l *Launcher) Run(opts Options) error {
 	ended := l.now()
 	run.EndedAt = &ended
 	run.ExitCode = &exitCode
-	run.Tokens, run.Cost = b.Parse(stdout, stderr)
+	out := b.Parse(stdout, stderr)
+	run.Tokens, run.Cost, run.Output = out.Tokens, out.Cost, out.Text
 	if runErr != nil || exitCode != 0 {
 		run.Status = state.StatusError
 		run.Error = errorMessage(runErr, stderr)
 	} else {
 		run.Status = state.StatusDone
 	}
+
+	printResult(l.out, run)
 	return l.write(opts.Dir, run)
+}
+
+// printResult reports a finished run to the terminal: the answer on success, or
+// the failure reason on error.
+func printResult(w io.Writer, run state.Run) {
+	if run.Status == state.StatusError {
+		fmt.Fprintf(w, "\n─── %s · error ───\n%s\n", run.Backend, run.Error)
+		return
+	}
+	fmt.Fprintf(w, "\n─── %s · done · %d tok · $%.2f ───\n", run.Backend, run.Tokens, run.Cost)
+	if run.Output != "" {
+		fmt.Fprintln(w, run.Output)
+	}
 }
 
 // displayName is the label shown in the monitor: an explicit name, or the task.

@@ -33,4 +33,5 @@ type Run struct {
 	Cost      float64    `json:"cost"`
 	ExitCode  *int       `json:"exit_code"`
 	Error     string     `json:"error,omitempty"`
+	Output    string     `json:"output,omitempty"`
 }

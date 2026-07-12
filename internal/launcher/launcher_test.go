@@ -1,7 +1,9 @@
 package launcher
 
 import (
+	"bytes"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -26,9 +28,13 @@ func capturingLauncher(t *testing.T, run commandRunner) (*Launcher, *[]state.Run
 		write:  func(_ string, r state.Run) error { written = append(written, r); return nil },
 		now:    func() time.Time { return time.Unix(1000, 0).UTC() },
 		suffix: func() (string, error) { return "abcd", nil },
+		out:    &bytes.Buffer{},
 	}
 	return l, &written
 }
+
+// printed returns what the launcher wrote to its output writer.
+func printed(l *Launcher) string { return l.out.(*bytes.Buffer).String() }
 
 func TestRun_SuccessRecordsDoneWithUsage(t *testing.T) {
 	l, written := capturingLauncher(t, fakeRunner(`{"total_cost_usd":0.5,"usage":{"input_tokens":3,"output_tokens":7}}`, "", 0, nil))
@@ -52,6 +58,34 @@ func TestRun_SuccessRecordsDoneWithUsage(t *testing.T) {
 	}
 	if done.ExitCode == nil || *done.ExitCode != 0 || done.EndedAt == nil {
 		t.Errorf("terminal fields not set: %+v", done)
+	}
+}
+
+func TestRun_PrintsAndRecordsAnswer(t *testing.T) {
+	l, written := capturingLauncher(t, fakeRunner(`{"result":"hi there","usage":{"input_tokens":1,"output_tokens":1}}`, "", 0, nil))
+
+	if err := l.Run(Options{Backend: "claude", Task: "t", Dir: "d"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := (*written)[1].Output; got != "hi there" {
+		t.Errorf("answer not recorded in state: %q", got)
+	}
+	out := printed(l)
+	if !strings.Contains(out, "running claude") {
+		t.Errorf("run should be announced, got:\n%s", out)
+	}
+	if !strings.Contains(out, "hi there") {
+		t.Errorf("answer should be printed, got:\n%s", out)
+	}
+}
+
+func TestRun_PrintsErrorOnFailure(t *testing.T) {
+	l, _ := capturingLauncher(t, fakeRunner("", "boom happened", 2, nil))
+
+	_ = l.Run(Options{Backend: "claude", Task: "t", Dir: "d"})
+	out := printed(l)
+	if !strings.Contains(out, "error") || !strings.Contains(out, "boom happened") {
+		t.Errorf("failure should be reported, got:\n%s", out)
 	}
 }
 
@@ -186,9 +220,12 @@ func TestExecRun_StartFailure(t *testing.T) {
 }
 
 func TestNew_WiresRealDependencies(t *testing.T) {
-	l := New()
+	l := New(io.Discard)
 	if l.run == nil || l.write == nil {
 		t.Fatal("runner/writer not wired")
+	}
+	if l.out == nil {
+		t.Error("output writer not wired")
 	}
 	if s, err := l.suffix(); err != nil || s == "" {
 		t.Errorf("suffix closure failed: %q, %v", s, err)

@@ -9,6 +9,14 @@ import (
 	"sort"
 )
 
+// Output is what a finished run yields: the agent's answer text and its usage.
+// Every field is best-effort; unrecognized output leaves the zero value.
+type Output struct {
+	Text   string
+	Tokens int
+	Cost   float64
+}
+
 // Backend describes how to run and measure a specific agent CLI.
 type Backend interface {
 	// Key is the backend's unique identifier (e.g. "claude").
@@ -16,9 +24,10 @@ type Backend interface {
 	// Command builds the executable name and arguments for a task, applying the
 	// model when one is provided.
 	Command(task, model string) (name string, args []string)
-	// Parse extracts the token count and cost from a finished run's output. It
-	// is best-effort: unrecognized output yields zero without an error.
-	Parse(stdout, stderr []byte) (tokens int, cost float64)
+	// Parse extracts the answer text, token count, and cost from a finished
+	// run's output. It is best-effort: unrecognized output yields a zero Output
+	// without an error.
+	Parse(stdout, stderr []byte) Output
 }
 
 // registry maps each backend key to its implementation. To add a backend,
