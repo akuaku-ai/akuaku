@@ -5,20 +5,21 @@ A minimalist terminal UI to **monitor** and **launch** AI agents — using the C
 Akuaku subprocesses the tools you already have (Claude Code, Codex, Ollama) and shows every run in one live dashboard: status, duration, tokens, and cost. No API tokens, no hosted backend, no lock-in.
 
 ```
- running 3 · done 1 · err 1                      ▄▀█ █▄▀ █ █ ▄▀█ █▄▀ █ █
- 4.6k tokens · $0.11                             █▀█ █▀▄ █▄█ █▀█ █▀▄ █▄█
- ● live                                          \|/ akuaku \|/
-╭─────────────────────────────────────────────────────────────────────╮
-│ Agents (5)                                                    ● live │
-│    NAME                  BACKEND  MODEL          DUR  TOKENS     COST │
-│ >● refactor auth module  claude   opus-4.8      2:00    1200    $0.11 │
-│  ● write parser tests    codex    5.3-codex     2:30    3400    $0.00 │
-│  ● review PR #42         claude   claude-sonne  3:00       —        — │
-│  ✔ summarize design doc  ollama   llama3.1      1:50      20    $0.00 │
-│  ✖ bad model run         claude   opus-4.8      4:00       0    $0.00 │
-╰─────────────────────────────────────────────────────────────────────╯
- ↑/↓ move · enter open · q quit
+  running 2 · done 3 · err 0               \|/    ▄▀█ █▄▀ █ █ ▄▀█ █▄▀ █ █
+  1.2k tokens · $0.32                       (● ●)  █▀█ █▀▄ █▄█ █▀█ █▀▄ █▄█
+  ● live                                     ╰—╯   \|/ akuaku \|/
+  ╭─────────────────────────────────────────────────────────────────────╮
+  │ Agents (5)                                                   ● live  │
+  │    NAME                       BACKEND  MODEL            DUR TOKENS COST│
+  │ >● claude session             claude   claude-opus-4-8 3:40     —    —│
+  │  ● proyecto code review       claude   opus-4.8        3:50   414 $0.00│
+  │  ✔ dame 2 tips de code review claude   opus-4.8        1:50   650 $0.21│
+  │  ✔ say hi in 2 words          ollama   llama3.1        2:00    20 $0.00│
+  ╰─────────────────────────────────────────────────────────────────────╯
+  ↑/↓ move · enter open · q quit
 ```
+
+A colored tiki mask sits beside the wordmark; running agents lead the list, each row is colored by status, and the whole dashboard is framed with padding.
 
 ## Why
 

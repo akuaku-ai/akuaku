@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/akuaku-ai/akuaku/internal/state"
 )
@@ -512,6 +513,37 @@ func TestView_ColorsRunningDoneAndErrorRows(t *testing.T) {
 func TestView_HandlesNarrowWidthWithoutPanic(t *testing.T) {
 	if out := (Model{runs: threeRuns(), width: 10}).View(); out == "" {
 		t.Error("expected output even at a narrow width")
+	}
+}
+
+func TestView_CapsWidthOnWideTerminal(t *testing.T) {
+	out := Model{runs: threeRuns(), width: 250}.View()
+	maxw := 0
+	for _, l := range strings.Split(out, "\n") {
+		if w := lipgloss.Width(l); w > maxw {
+			maxw = w
+		}
+	}
+	if maxw > maxDashW+2*outerPadX+2 {
+		t.Errorf("dashboard stretched to %d cols on a wide terminal; expected it capped near %d", maxw, maxDashW)
+	}
+}
+
+func TestView_TruncatesVeryLongName(t *testing.T) {
+	long := "this is an extremely long agent name that should be truncated to the column"
+	out := Model{runs: []state.Run{{Name: long, Status: state.StatusDone}}, width: 200}.View()
+	if strings.Contains(out, long) {
+		t.Error("a name longer than the column should be truncated")
+	}
+}
+
+func TestView_HasOuterPadding(t *testing.T) {
+	lines := strings.Split(Model{runs: threeRuns(), width: 100}.View(), "\n")
+	if strings.TrimSpace(lines[0]) != "" {
+		t.Errorf("expected a blank top-padding line, got %q", lines[0])
+	}
+	if !strings.HasPrefix(lines[1], "  ") {
+		t.Errorf("expected left padding on content lines, got %q", lines[1])
 	}
 }
 
