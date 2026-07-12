@@ -5,15 +5,19 @@ A minimalist terminal UI to **monitor** and **launch** AI agents — using the C
 Akuaku subprocesses the tools you already have (Claude Code, Codex, Ollama) and shows every run in one live dashboard: status, duration, tokens, and cost. No API tokens, no hosted backend, no lock-in.
 
 ```
-Akuaku 🗿
-
-NAME          BACKEND  STATUS   DUR   TOKENS     COST
-refactor auth claude   running  0:12    1200   $  0.04
-fix tests     codex    done     1:30    3400   $  0.00
-summarize     ollama   error    0:05       0   $  0.00
-
-running: 1  ok: 1  err: 1  tokens: 4600  cost: $0.04
-press q to quit
+ running 3 · done 1 · err 1                      ▄▀█ █▄▀ █ █ ▄▀█ █▄▀ █ █
+ 4.6k tokens · $0.11                             █▀█ █▀▄ █▄█ █▀█ █▀▄ █▄█
+ ● live                                          \|/ akuaku \|/
+╭─────────────────────────────────────────────────────────────────────╮
+│ Agents (5)                                                    ● live │
+│    NAME                  BACKEND  MODEL          DUR  TOKENS     COST │
+│ >● refactor auth module  claude   opus-4.8      2:00    1200    $0.11 │
+│  ● write parser tests    codex    5.3-codex     2:30    3400    $0.00 │
+│  ● review PR #42         claude   claude-sonne  3:00       —        — │
+│  ✔ summarize design doc  ollama   llama3.1      1:50      20    $0.00 │
+│  ✖ bad model run         claude   opus-4.8      4:00       0    $0.00 │
+╰─────────────────────────────────────────────────────────────────────╯
+ ↑/↓ move · enter open · q quit
 ```
 
 ## Why

@@ -251,21 +251,61 @@ func (m Model) listView() string {
 		width = 80
 	}
 	sections := []string{
-		m.overview(computeMetrics(m.runs)),
+		m.header(width, computeMetrics(m.runs)),
 		m.table(width),
 		headerStyle.Render("↑/↓ move · enter open · q quit"),
 	}
 	return strings.Join(sections, "\n")
 }
 
-// overview is the top strip: the brand, the run counts, and the totals.
-func (m Model) overview(mt metrics) string {
-	line := titleStyle.Render("Akuaku 🗿") + fmt.Sprintf("   running %d · done %d · err %d   ·   %s tok · $%.2f",
-		mt.running, mt.done, mt.errored, humanizeTokens(mt.tokens), mt.cost)
-	if m.err != nil {
-		line += fmt.Sprintf("\nerror reading state: %s", m.err)
+// header is the k9s-style top strip: run stats on the left and the Akuaku logo
+// right-aligned. The logo is the brand mark that replaces the emoji.
+func (m Model) header(width int, mt metrics) string {
+	logo := logoLines()
+	logoW := 0
+	for _, art := range logo {
+		if w := lipgloss.Width(art); w > logoW {
+			logoW = w
+		}
 	}
-	return line
+
+	left := []string{
+		fmt.Sprintf("running %d · done %d · err %d", mt.running, mt.done, mt.errored),
+		fmt.Sprintf("%s tokens · $%.2f", humanizeTokens(mt.tokens), mt.cost),
+		"● live",
+	}
+
+	var b strings.Builder
+	for i, art := range logo {
+		stat := ""
+		if i < len(left) {
+			stat = left[i]
+		}
+		gap := width - logoW - lipgloss.Width(stat)
+		if gap < 1 {
+			gap = 1
+		}
+		b.WriteString(stat)
+		b.WriteString(strings.Repeat(" ", gap))
+		b.WriteString(titleStyle.Render(art))
+		if i < len(logo)-1 {
+			b.WriteByte('\n')
+		}
+	}
+	if m.err != nil {
+		fmt.Fprintf(&b, "\nerror reading state: %s", m.err)
+	}
+	return b.String()
+}
+
+// logoLines is the Akuaku brand mark: the wordmark in block characters over a
+// feathered signature.
+func logoLines() []string {
+	return []string{
+		"▄▀█ █▄▀ █ █ ▄▀█ █▄▀ █ █",
+		"█▀█ █▀▄ █▄█ █▀█ █▀▄ █▄█",
+		`\|/ akuaku \|/`,
+	}
 }
 
 // table renders the bordered agent list sized to width, with the selected row
@@ -377,7 +417,7 @@ func (m Model) detailView() string {
 	run := m.runs[m.cursor]
 
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Akuaku 🗿 — " + run.Name))
+	b.WriteString(titleStyle.Render("akuaku") + "  " + lipgloss.NewStyle().Bold(true).Render(run.Name))
 	b.WriteString("\n\n")
 	fmt.Fprintf(&b, "backend:  %s\n", run.Backend)
 	fmt.Fprintf(&b, "status:   %s\n", run.Status)

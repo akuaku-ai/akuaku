@@ -181,9 +181,23 @@ func TestView_RendersRunsAndMetrics(t *testing.T) {
 	}
 	out := Model{runs: runs, now: now, width: 100}.View()
 
-	for _, want := range []string{"Akuaku", "refactor", "claude", "opus", "1200", "0.04", "running 1"} {
+	for _, want := range []string{"akuaku", "refactor", "claude", "opus", "1200", "0.04", "running 1"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("View() missing %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestView_ShowsLogoAndStats(t *testing.T) {
+	out := Model{runs: threeRuns(), width: 100}.View()
+	// The brand wordmark (block art) and its greppable name.
+	if !strings.Contains(out, "█") || !strings.Contains(out, "akuaku") {
+		t.Errorf("header should show the Akuaku logo, got:\n%s", out)
+	}
+	// Stats sit on the left of the k9s-style header.
+	for _, want := range []string{"running", "live"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("header missing %q, got:\n%s", want, out)
 		}
 	}
 }
