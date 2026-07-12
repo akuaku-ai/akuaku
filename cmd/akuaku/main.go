@@ -9,14 +9,17 @@ package main
 import (
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/akuaku-ai/akuaku/internal/backend"
 	"github.com/akuaku-ai/akuaku/internal/cli"
 	"github.com/akuaku-ai/akuaku/internal/hook"
 	"github.com/akuaku-ai/akuaku/internal/launcher"
+	"github.com/akuaku-ai/akuaku/internal/setup"
 	"github.com/akuaku-ai/akuaku/internal/state"
 	"github.com/akuaku-ai/akuaku/internal/tui"
 )
@@ -29,6 +32,7 @@ func main() {
 			return hook.Handle(event, r, state.Dir(), time.Now())
 		},
 		HookInstall: installHooks,
+		Setup:       runSetup,
 		In:          os.Stdin,
 		Out:         os.Stdout,
 		Err:         os.Stderr,
@@ -54,4 +58,24 @@ func installHooks() error {
 		exe = "akuaku"
 	}
 	return hook.Install(settings, exe)
+}
+
+// runSetup puts this binary's directory on the user's PATH and reports which
+// backend CLIs are installed.
+func runSetup() error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	return setup.Run(setup.Config{
+		BinDir:   filepath.Dir(exe),
+		Path:     os.Getenv("PATH"),
+		Profile:  setup.ProfileFor(os.Getenv("SHELL"), home),
+		Backends: backend.Keys(),
+		LookPath: exec.LookPath,
+	}, os.Stdout)
 }
