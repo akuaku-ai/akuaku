@@ -188,6 +188,57 @@ func TestView_RendersRunsAndMetrics(t *testing.T) {
 	}
 }
 
+func TestView_ReflectedRunShowsDashForUsage(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	runs := []state.Run{
+		{ID: "s1", Name: "external session", Backend: "claude", Status: state.StatusRunning,
+			Source: "hook", StartedAt: time.Unix(90, 0).UTC()},
+	}
+	out := Model{runs: runs, now: now}.View()
+
+	if !strings.Contains(out, "external session") {
+		t.Errorf("reflected run not shown, got:\n%s", out)
+	}
+	if !strings.Contains(out, "—") {
+		t.Errorf("reflected usage should render as a dash, got:\n%s", out)
+	}
+	// A hook run carries no usage, so a bare zero count or a dollar figure would
+	// misrepresent it as measured.
+	line := runLine(out, "external session")
+	if strings.Contains(line, "$") {
+		t.Errorf("reflected run should not show a cost figure: %q", line)
+	}
+}
+
+func TestFormatTokens(t *testing.T) {
+	if got := formatTokens(state.Run{Tokens: 1200}); got != "1200" {
+		t.Errorf("formatTokens = %q, want 1200", got)
+	}
+	if got := formatTokens(state.Run{Source: "hook", Tokens: 1200}); got != "—" {
+		t.Errorf("hook formatTokens = %q, want a dash", got)
+	}
+}
+
+func TestFormatCost(t *testing.T) {
+	if got := formatCost(state.Run{Cost: 0.04}); got != "$0.04" {
+		t.Errorf("formatCost = %q, want $0.04", got)
+	}
+	if got := formatCost(state.Run{Source: "hook", Cost: 0.04}); got != "—" {
+		t.Errorf("hook formatCost = %q, want a dash", got)
+	}
+}
+
+// runLine returns the first View line containing name, for asserting on a
+// single run's row.
+func runLine(view, name string) string {
+	for _, l := range strings.Split(view, "\n") {
+		if strings.Contains(l, name) {
+			return l
+		}
+	}
+	return ""
+}
+
 func TestView_ShowsEmptyState(t *testing.T) {
 	out := New().View()
 	if !strings.Contains(out, "no agents") {
