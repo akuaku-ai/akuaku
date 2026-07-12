@@ -63,6 +63,24 @@ Flags:
 
 Each run writes one JSON file to the state directory; the monitor reads them on a one-second tick.
 
+## Reflect sessions from other terminals
+
+Not every Claude session starts with `akuaku run`. When you launch Claude Code directly — in another terminal, an IDE, wherever — Akuaku can still surface it in the monitor. One command wires it up:
+
+```sh
+akuaku hook install
+```
+
+This merges three hooks into your `~/.claude/settings.json` (existing settings and hooks are preserved; re-running is a no-op). From then on, every Claude Code session appears in the monitor as it starts, updates with your first prompt, and flips to `done` when it ends:
+
+```
+NAME              BACKEND  STATUS   DUR   TOKENS     COST
+refactor auth     claude   running  0:12    1200   $  0.04   ← akuaku run
+review PR #42     claude   running  0:03       —        —    ← reflected via hook
+```
+
+Reflected runs show `—` for tokens and cost: Claude Code hooks don't expose usage, and Akuaku never reads transcripts. The mechanics are the same contract as everything else — `akuaku hook <event>` is the producer Claude Code calls, and it writes a `source: "hook"` run to the state directory.
+
 ## Backends
 
 | Backend | Command | Tokens | Cost |
@@ -80,7 +98,7 @@ Akuaku is two decoupled halves joined by the filesystem:
 - **`akuaku run`** spawns a backend subprocess and writes the run's lifecycle to `state/<id>.json` (`running` → `done`/`error`, with tokens, cost, and exit code). Writes are atomic (temp file + rename).
 - **`akuaku`** (the monitor) only *reads* `state/*.json`. It never writes, and it derives every metric by scanning the directory.
 
-Because the state JSON is the only channel, anything can be a producer — a script, a cron job, or a future integration — and it appears in the monitor with no code changes. Backends live behind a small interface, so adding one is a definition plus a parser.
+Because the state JSON is the only channel, anything can be a producer — `akuaku run`, a Claude Code hook (see above), a script, a cron job, or a future integration — and it appears in the monitor with no code changes. Backends live behind a small interface, so adding one is a definition plus a parser.
 
 ## Configuration
 
@@ -90,7 +108,7 @@ Because the state JSON is the only channel, anything can be a producer — a scr
 
 ## Roadmap
 
-- Reflect agent sessions started in **other terminals** (e.g. an `akuaku hook` fed by Claude Code hooks, then process discovery).
+- Reflect Codex and other agents started outside Akuaku (Claude Code sessions already work via `akuaku hook install`).
 - An embedded, interactive Claude session inside the TUI.
 - Alerts → webhooks → connectors.
 
