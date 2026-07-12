@@ -24,7 +24,7 @@ import (
 func main() {
 	deps := cli.Deps{
 		Monitor: runMonitor,
-		Launch:  launcher.New().Run,
+		Launch:  launcher.New(os.Stdout).Run,
 		Hook: func(event string, r io.Reader) error {
 			return hook.Handle(event, r, state.Dir(), time.Now())
 		},

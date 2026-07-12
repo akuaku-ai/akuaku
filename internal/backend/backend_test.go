@@ -60,21 +60,25 @@ func TestClaudeCommand_OmitsEmptyModel(t *testing.T) {
 	}
 }
 
-func TestClaudeParse_FixtureTokensAndCost(t *testing.T) {
+func TestClaudeParse_FixtureOutput(t *testing.T) {
 	b, _ := Get("claude")
-	tokens, cost := b.Parse(readFixture(t, "claude.json"), nil)
-	if tokens != 6 {
-		t.Errorf("tokens = %d, want 6 (2 in + 4 out)", tokens)
+	out := b.Parse(readFixture(t, "claude.json"), nil)
+	if out.Text != "ok" {
+		t.Errorf("text = %q, want %q", out.Text, "ok")
 	}
-	if cost < 0.1044 || cost > 0.1045 {
-		t.Errorf("cost = %v, want ~0.10442", cost)
+	if out.Tokens != 6 {
+		t.Errorf("tokens = %d, want 6 (2 in + 4 out)", out.Tokens)
+	}
+	if out.Cost < 0.1044 || out.Cost > 0.1045 {
+		t.Errorf("cost = %v, want ~0.10442", out.Cost)
 	}
 }
 
 func TestClaudeParse_GarbageDegradesToZero(t *testing.T) {
 	b, _ := Get("claude")
-	if tokens, cost := b.Parse([]byte("not json"), nil); tokens != 0 || cost != 0 {
-		t.Errorf("garbage should yield 0/0, got %d/%v", tokens, cost)
+	out := b.Parse([]byte("not json"), nil)
+	if out.Tokens != 0 || out.Cost != 0 || out.Text != "" {
+		t.Errorf("garbage should yield an empty Output, got %+v", out)
 	}
 }
 
@@ -98,22 +102,26 @@ func TestCodexCommand_OmitsEmptyModel(t *testing.T) {
 	}
 }
 
-func TestCodexParse_FixtureTokens(t *testing.T) {
+func TestCodexParse_FixtureOutput(t *testing.T) {
 	b, _ := Get("codex")
-	tokens, cost := b.Parse(readFixture(t, "codex.jsonl"), nil)
-	if tokens != 26569 {
-		t.Errorf("tokens = %d, want 26569 (26533 in + 36 out)", tokens)
+	out := b.Parse(readFixture(t, "codex.jsonl"), nil)
+	if out.Text != "ok" {
+		t.Errorf("text = %q, want %q", out.Text, "ok")
 	}
-	if cost != 0 {
-		t.Errorf("cost = %v, want 0", cost)
+	if out.Tokens != 26569 {
+		t.Errorf("tokens = %d, want 26569 (26533 in + 36 out)", out.Tokens)
+	}
+	if out.Cost != 0 {
+		t.Errorf("cost = %v, want 0", out.Cost)
 	}
 }
 
 func TestCodexParse_IgnoresJunkAndMissingUsage(t *testing.T) {
 	b, _ := Get("codex")
 	input := []byte("not json\n{\"type\":\"turn.started\"}\n\n")
-	if tokens, _ := b.Parse(input, nil); tokens != 0 {
-		t.Errorf("tokens = %d, want 0", tokens)
+	out := b.Parse(input, nil)
+	if out.Tokens != 0 || out.Text != "" {
+		t.Errorf("junk should yield an empty Output, got %+v", out)
 	}
 }
 
@@ -128,20 +136,25 @@ func TestOllamaCommand_UsesPositionalModel(t *testing.T) {
 	}
 }
 
-func TestOllamaParse_FixtureTokens(t *testing.T) {
+func TestOllamaParse_FixtureOutput(t *testing.T) {
 	b, _ := Get("ollama")
-	tokens, cost := b.Parse(nil, readFixture(t, "ollama_verbose.txt"))
-	if tokens != 17 {
-		t.Errorf("tokens = %d, want 17 (15 prompt + 2 eval)", tokens)
+	// Ollama writes the answer to stdout and its --verbose stats to stderr.
+	out := b.Parse([]byte("  the answer\n"), readFixture(t, "ollama_verbose.txt"))
+	if out.Text != "the answer" {
+		t.Errorf("text = %q, want %q", out.Text, "the answer")
 	}
-	if cost != 0 {
-		t.Errorf("cost = %v, want 0", cost)
+	if out.Tokens != 17 {
+		t.Errorf("tokens = %d, want 17 (15 prompt + 2 eval)", out.Tokens)
+	}
+	if out.Cost != 0 {
+		t.Errorf("cost = %v, want 0", out.Cost)
 	}
 }
 
 func TestOllamaParse_NoMatchDegradesToZero(t *testing.T) {
 	b, _ := Get("ollama")
-	if tokens, _ := b.Parse(nil, []byte("no stats here")); tokens != 0 {
-		t.Errorf("tokens = %d, want 0", tokens)
+	out := b.Parse(nil, []byte("no stats here"))
+	if out.Tokens != 0 || out.Text != "" {
+		t.Errorf("no match should yield an empty Output, got %+v", out)
 	}
 }

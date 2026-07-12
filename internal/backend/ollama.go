@@ -3,6 +3,7 @@ package backend
 import (
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 // ollamaBackend drives a local model via `ollama run <model> ... --verbose`.
@@ -21,10 +22,14 @@ var (
 	evalRe       = regexp.MustCompile(`(?m)^eval count:\s+(\d+)`)
 )
 
-// Parse reads Ollama's `--verbose` stats from stderr. Tokens are the sum of the
-// prompt and generation eval counts; a local model has no cost.
-func (ollamaBackend) Parse(_, stderr []byte) (int, float64) {
-	return firstInt(promptEvalRe, stderr) + firstInt(evalRe, stderr), 0
+// Parse reads Ollama's answer from stdout and its `--verbose` stats from stderr.
+// Tokens are the sum of the prompt and generation eval counts; a local model has
+// no cost.
+func (ollamaBackend) Parse(stdout, stderr []byte) Output {
+	return Output{
+		Text:   strings.TrimSpace(string(stdout)),
+		Tokens: firstInt(promptEvalRe, stderr) + firstInt(evalRe, stderr),
+	}
 }
 
 // firstInt returns the first capture group of re parsed as an int, or zero.
