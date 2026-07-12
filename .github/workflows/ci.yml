@@ -34,14 +34,15 @@ jobs:
           version: latest
 
       - name: Test
-        run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+        run: go test -race -covermode=atomic -coverprofile=coverage.out ./internal/...
 
-      # The repository targets 100% coverage. The strict gate below is enabled
-      # once the first tested package lands; until then it only reports totals.
-      - name: Coverage
+      # The repository requires 100% statement coverage of the internal
+      # packages. The cmd/ entrypoint is thin glue and is intentionally excluded.
+      - name: Enforce 100% coverage
         run: |
-          if [ -f coverage.out ]; then
-            go tool cover -func=coverage.out | tail -n 1
-          else
-            echo "No coverage profile yet (no packages)."
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {print $3}')
+          echo "Total coverage (internal): $total"
+          if [ "$total" != "100.0%" ]; then
+            echo "::error::coverage $total is below the required 100.0%"
+            exit 1
           fi
