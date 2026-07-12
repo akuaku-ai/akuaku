@@ -547,6 +547,115 @@ func TestView_HasOuterPadding(t *testing.T) {
 	}
 }
 
+func TestUpdate_SlashEntersFilter(t *testing.T) {
+	next, _ := Model{runs: threeRuns()}.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	if !next.(Model).filtering {
+		t.Error("/ should enter filter mode")
+	}
+}
+
+func TestUpdate_SlashIgnoredInDetail(t *testing.T) {
+	next, _ := Model{runs: threeRuns(), detail: true}.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	if next.(Model).filtering {
+		t.Error("/ should not open the filter while viewing a run's detail")
+	}
+}
+
+func TestFilterKey_TypingBuildsQueryAndNavKeysDoNotMove(t *testing.T) {
+	m := Model{runs: threeRuns(), filtering: true, cursor: 2}
+	// A nav key like "j" is typed into the filter, not treated as movement.
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m = next.(Model)
+	if m.filter != "j" {
+		t.Errorf("filter = %q, want %q", m.filter, "j")
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m = next.(Model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	if got := next.(Model).filter; got != "j x" {
+		t.Errorf("filter = %q, want %q", got, "j x")
+	}
+}
+
+func TestFilterKey_Backspace(t *testing.T) {
+	m := Model{filter: "abc", filtering: true}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	if got := next.(Model).filter; got != "ab" {
+		t.Errorf("filter = %q, want %q", got, "ab")
+	}
+	// Backspace on an empty filter is a no-op.
+	empty := Model{filtering: true}
+	next, _ = empty.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	if got := next.(Model).filter; got != "" {
+		t.Errorf("filter = %q, want empty", got)
+	}
+}
+
+func TestFilterKey_EnterConfirmsAndEscClears(t *testing.T) {
+	confirmed, _ := (Model{filter: "foo", filtering: true}).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m := confirmed.(Model); m.filtering || m.filter != "foo" {
+		t.Errorf("enter should keep the filter and exit editing: %+v", m)
+	}
+	cleared, _ := (Model{filter: "foo", filtering: true}).Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m := cleared.(Model); m.filtering || m.filter != "" {
+		t.Errorf("esc should clear the filter and exit editing: %+v", m)
+	}
+}
+
+func TestMatchesFilter(t *testing.T) {
+	run := state.Run{Name: "refactor auth", Model: "claude-opus"}
+	cases := map[string]bool{
+		"":            true,
+		"AUTH":        true,  // case-insensitive, matches name
+		"opus":        true,  // matches model
+		"nope":        false, // matches neither
+		"-n refactor": true,  // name scope
+		"-n opus":     false, // name scope excludes model
+		"-m opus":     true,  // model scope
+		"-m refactor": false, // model scope excludes name
+	}
+	for query, want := range cases {
+		if got := matchesFilter(run, query); got != want {
+			t.Errorf("matchesFilter(%q) = %v, want %v", query, got, want)
+		}
+	}
+}
+
+func TestView_FilterHidesNonMatchingRows(t *testing.T) {
+	runs := []state.Run{
+		{Name: "refactor auth", Backend: "claude", Model: "opus", Status: state.StatusDone},
+		{Name: "write tests", Backend: "codex", Model: "5.3-codex", Status: state.StatusDone},
+	}
+	out := Model{runs: runs, filter: "refactor", width: 100}.View()
+	if !strings.Contains(out, "refactor auth") {
+		t.Errorf("matching row should show, got:\n%s", out)
+	}
+	if strings.Contains(out, "write tests") {
+		t.Errorf("non-matching row should be hidden, got:\n%s", out)
+	}
+}
+
+func TestView_ShowsFilterInputWhileEditing(t *testing.T) {
+	out := Model{runs: threeRuns(), filter: "ref", filtering: true, width: 100}.View()
+	if !strings.Contains(out, "filter: ") || !strings.Contains(out, "ref") {
+		t.Errorf("filter input should be shown, got:\n%s", out)
+	}
+}
+
+func TestView_ShowsActiveFilterHint(t *testing.T) {
+	out := Model{runs: threeRuns(), filter: "one", width: 100}.View()
+	if !strings.Contains(out, "filter: ") {
+		t.Errorf("an applied filter should be indicated, got:\n%s", out)
+	}
+}
+
+func TestView_EmptyFilterResultExplains(t *testing.T) {
+	out := Model{runs: threeRuns(), filter: "zzzznomatch", width: 100}.View()
+	if !strings.Contains(out, "no agents match") {
+		t.Errorf("an empty filter result should explain itself, got:\n%s", out)
+	}
+}
+
 var errBoom = boomError("boom")
 
 type boomError string

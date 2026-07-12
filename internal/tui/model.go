@@ -55,13 +55,15 @@ func loadRuns() tea.Msg {
 // row, detail toggles the single-run view, and width/height track the terminal
 // size so the dashboard fills it.
 type Model struct {
-	runs   []state.Run
-	now    time.Time
-	err    error
-	cursor int
-	detail bool
-	width  int
-	height int
+	runs      []state.Run
+	now       time.Time
+	err       error
+	cursor    int
+	detail    bool
+	width     int
+	height    int
+	filter    string // active filter query; empty shows everything
+	filtering bool   // whether the filter input is being edited
 }
 
 // New returns a Model in its initial state.
@@ -78,6 +80,9 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.filtering {
+			return m.filterKey(msg)
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -86,15 +91,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor--
 			}
 		case "down", "j":
-			if m.cursor < len(m.runs)-1 {
+			if m.cursor < len(m.visible())-1 {
 				m.cursor++
 			}
 		case "enter":
-			if len(m.runs) > 0 {
+			if !m.detail && len(m.visible()) > 0 {
 				m.detail = true
 			}
 		case "esc":
 			m.detail = false
+		case "/":
+			if !m.detail {
+				m.filtering = true
+			}
 		}
 		return m, nil
 	case tea.WindowSizeMsg:
@@ -108,10 +117,77 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		sortRuns(msg.runs)
 		m.runs = msg.runs
 		m.err = msg.err
-		m.cursor = clamp(m.cursor, len(m.runs))
+		m.cursor = clamp(m.cursor, len(m.visible()))
 		return m, nil
 	}
 	return m, nil
+}
+
+// filterKey edits the filter query while the filter input is active.
+func (m Model) filterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEnter:
+		m.filtering = false
+	case tea.KeyEsc:
+		m.filter = ""
+		m.filtering = false
+	case tea.KeyBackspace:
+		if r := []rune(m.filter); len(r) > 0 {
+			m.filter = string(r[:len(r)-1])
+		}
+	case tea.KeySpace:
+		m.filter += " "
+	case tea.KeyRunes:
+		m.filter += string(msg.Runes)
+	}
+	m.cursor = clamp(m.cursor, len(m.visible()))
+	return m, nil
+}
+
+// visible is the run list after applying the active filter.
+func (m Model) visible() []state.Run {
+	if m.filter == "" {
+		return m.runs
+	}
+	out := make([]state.Run, 0, len(m.runs))
+	for _, run := range m.runs {
+		if matchesFilter(run, m.filter) {
+			out = append(out, run)
+		}
+	}
+	return out
+}
+
+// matchesFilter reports whether run satisfies query. A leading `-n ` or `-m `
+// scopes the match to the name or model; otherwise either field may match.
+func matchesFilter(run state.Run, query string) bool {
+	field, term := parseFilter(query)
+	term = strings.ToLower(term)
+	if term == "" {
+		return true
+	}
+	name := strings.Contains(strings.ToLower(run.Name), term)
+	model := strings.Contains(strings.ToLower(run.Model), term)
+	switch field {
+	case "name":
+		return name
+	case "model":
+		return model
+	default:
+		return name || model
+	}
+}
+
+// parseFilter splits a query into an optional field scope and its term.
+func parseFilter(query string) (field, term string) {
+	switch {
+	case strings.HasPrefix(query, "-n "):
+		return "name", query[3:]
+	case strings.HasPrefix(query, "-m "):
+		return "model", query[3:]
+	default:
+		return "", query
+	}
 }
 
 // sortRuns orders runs so live ones lead the list and, within each group, the
@@ -245,7 +321,7 @@ const (
 // View renders the current frame: the single-run detail when a run is selected
 // and open, otherwise the full-width dashboard.
 func (m Model) View() string {
-	if m.detail && len(m.runs) > 0 {
+	if m.detail && len(m.visible()) > 0 {
 		return m.detailView()
 	}
 	return m.listView()
@@ -254,6 +330,8 @@ func (m Model) View() string {
 // listView renders the dashboard: an overview strip, the agent table, and a
 // keybinding footer, capped in width and framed by outer padding.
 func (m Model) listView() string {
+	runs := m.visible()
+
 	width := m.width - 2*outerPadX
 	if width <= 0 {
 		width = 80
@@ -263,7 +341,7 @@ func (m Model) listView() string {
 	}
 	// Shrink to the widest name so short lists stay dense instead of leaving a
 	// gap between the name and the metric columns.
-	nameW := longestName(m.runs)
+	nameW := longestName(runs)
 	if nameW < minNameW {
 		nameW = minNameW
 	}
@@ -275,11 +353,23 @@ func (m Model) listView() string {
 	}
 
 	sections := []string{
-		m.header(width, computeMetrics(m.runs)),
-		m.table(width),
-		headerStyle.Render("↑/↓ move · enter open · q quit"),
+		m.header(width, computeMetrics(runs)),
+		m.table(width, runs),
+		m.footer(),
 	}
 	return appStyle.Render(strings.Join(sections, "\n"))
+}
+
+// footer shows the keybindings, or the filter input while it is being edited.
+func (m Model) footer() string {
+	if m.filtering {
+		return headerStyle.Render("filter: ") + m.filter + headerStyle.Render("▏  (enter apply · esc clear)")
+	}
+	hint := "↑/↓ move · enter open · / filter · q quit"
+	if m.filter != "" {
+		return headerStyle.Render("filter: ") + m.filter + headerStyle.Render("   ·   "+hint)
+	}
+	return headerStyle.Render(hint)
 }
 
 // longestName is the rune length of the widest run name, sizing the name column.
@@ -370,7 +460,7 @@ func maskLines() []string {
 
 // table renders the bordered agent list sized to width, with the selected row
 // marked and each row colored by status.
-func (m Model) table(width int) string {
+func (m Model) table(width int, runs []state.Run) string {
 	innerW := width - 4
 	if innerW < minInner {
 		innerW = minInner
@@ -382,15 +472,15 @@ func (m Model) table(width int) string {
 
 	var b strings.Builder
 	live := headerStyle.Render("● live")
-	b.WriteString(padRight(fmt.Sprintf("Agents (%d)", len(m.runs)), innerW-lipgloss.Width(live)))
+	b.WriteString(padRight(fmt.Sprintf("Agents (%d)", len(runs)), innerW-lipgloss.Width(live)))
 	b.WriteString(live)
 
-	if len(m.runs) == 0 {
-		b.WriteString("\nno agents yet — launch one with `akuaku run`")
+	if len(runs) == 0 {
+		b.WriteString("\n" + emptyMessage(m.filter))
 	} else {
 		b.WriteByte('\n')
 		b.WriteString(headerStyle.Render(formatRow(" ", " ", "NAME", "BACKEND", "MODEL", "DUR", "TOKENS", "COST", nameW)))
-		for i, run := range m.runs {
+		for i, run := range runs {
 			marker := " "
 			if i == m.cursor {
 				marker = ">"
@@ -402,6 +492,15 @@ func (m Model) table(width int) string {
 		}
 	}
 	return boxStyle.Width(width - 2).Render(b.String())
+}
+
+// emptyMessage explains why the list is empty: no matches while filtering, or no
+// runs at all.
+func emptyMessage(filter string) string {
+	if filter != "" {
+		return "no agents match the filter — esc to clear"
+	}
+	return "no agents yet — launch one with `akuaku run`"
 }
 
 // formatRow lays a run's cells into fixed columns; name flexes to nameW.
@@ -474,7 +573,7 @@ func padLeft(s string, w int) string {
 // detailView renders the selected run: its metadata, its usage, and either the
 // captured answer, the failure reason, or a note that no output was recorded.
 func (m Model) detailView() string {
-	run := m.runs[m.cursor]
+	run := m.visible()[m.cursor]
 
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("akuaku") + "  " + lipgloss.NewStyle().Bold(true).Render(run.Name))
