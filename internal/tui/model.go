@@ -64,6 +64,7 @@ type Model struct {
 	height    int
 	filter    string // active filter query; empty shows everything
 	filtering bool   // whether the filter input is being edited
+	showAll   bool   // false shows only running agents; true shows the full history
 }
 
 // New returns a Model in its initial state.
@@ -103,6 +104,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "/":
 			if !m.detail {
 				m.filtering = true
+			}
+		case "a":
+			if !m.detail {
+				m.showAll = !m.showAll
+				m.cursor = clamp(m.cursor, len(m.visible()))
 			}
 		}
 		return m, nil
@@ -144,16 +150,18 @@ func (m Model) filterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// visible is the run list after applying the active filter.
+// visible is the run list the table shows: only running agents unless showAll is
+// set, further narrowed by the active text filter.
 func (m Model) visible() []state.Run {
-	if m.filter == "" {
-		return m.runs
-	}
 	out := make([]state.Run, 0, len(m.runs))
 	for _, run := range m.runs {
-		if matchesFilter(run, m.filter) {
-			out = append(out, run)
+		if !m.showAll && run.Status != state.StatusRunning {
+			continue
 		}
+		if m.filter != "" && !matchesFilter(run, m.filter) {
+			continue
+		}
+		out = append(out, run)
 	}
 	return out
 }
@@ -337,7 +345,9 @@ func (m Model) listView() string {
 		width = 80
 	}
 
-	header := m.header(width, computeMetrics(runs))
+	// The overview always summarizes every run, so the counts stay stable while
+	// the table below shows just the current view (running-only, all, filtered).
+	header := m.header(width, computeMetrics(m.runs))
 	footer := m.footer()
 
 	// Grow the table box to fill the height left over below the header and
@@ -362,7 +372,11 @@ func (m Model) footer() string {
 	if m.filtering {
 		return headerStyle.Render("filter: ") + m.filter + headerStyle.Render("▏  (enter apply · esc clear)")
 	}
-	hint := "↑/↓ move · enter open · / filter · q quit"
+	view := "a all"
+	if m.showAll {
+		view = "a running"
+	}
+	hint := "↑/↓ move · enter open · / filter · " + view + " · q quit"
 	if m.filter != "" {
 		return headerStyle.Render("filter: ") + m.filter + headerStyle.Render("   ·   "+hint)
 	}
@@ -467,7 +481,7 @@ func (m Model) table(width int, runs []state.Run, boxHeight int) string {
 	b.WriteString(live)
 
 	if len(runs) == 0 {
-		b.WriteString("\n" + emptyMessage(m.filter))
+		b.WriteString("\n" + m.emptyMessage())
 	} else {
 		b.WriteByte('\n')
 		b.WriteString(headerStyle.Render(formatRow(" ", " ", "NAME", "BACKEND", "MODEL", "DUR", "TOKENS", "COST", nameW)))
@@ -490,13 +504,17 @@ func (m Model) table(width int, runs []state.Run, boxHeight int) string {
 	return box.Render(b.String())
 }
 
-// emptyMessage explains why the list is empty: no matches while filtering, or no
-// runs at all.
-func emptyMessage(filter string) string {
-	if filter != "" {
+// emptyMessage explains why the table is empty: no filter match, no runs at all,
+// or (the default) runs exist but none are running.
+func (m Model) emptyMessage() string {
+	switch {
+	case m.filter != "":
 		return "no agents match the filter — esc to clear"
+	case len(m.runs) == 0:
+		return "no agents yet — launch one with `akuaku run`"
+	default:
+		return "no running agents — press a to show all"
 	}
-	return "no agents yet — launch one with `akuaku run`"
 }
 
 // formatRow lays a run's cells into fixed columns; name flexes to nameW.
