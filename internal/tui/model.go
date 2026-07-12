@@ -333,20 +333,24 @@ func (m Model) header(width int, mt metrics) string {
 	return b.String()
 }
 
-// logoBlock is the Akuaku brand mark: a colored tiki mask beside the wordmark in
-// block characters over a feathered signature. Each line is pre-styled, so the
-// caller measures it with lipgloss.Width.
+// logoBlock is the Akuaku brand mark: a colored tiki mask beside the AKUAKU
+// wordmark in block characters. Each line is pre-styled, so the caller measures
+// it with lipgloss.Width. The mask is three rows tall; the two-row wordmark sits
+// at its top, leaving the mask's mouth on the last row.
 func logoBlock() []string {
 	word := lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
-	rows := []string{
-		"▄▀█ █▄▀ █ █ ▄▀█ █▄▀ █ █",
-		"█▀█ █▀▄ █▄█ █▀█ █▀▄ █▄█",
-		`\|/ akuaku \|/`,
+	words := []string{
+		word.Render("▄▀█ █▄▀ █ █ ▄▀█ █▄▀ █ █"),
+		word.Render("█▀█ █▀▄ █▄█ █▀█ █▀▄ █▄█"),
+		"",
 	}
 	mask := maskLines()
-	block := make([]string, len(rows))
-	for i := range rows {
-		block[i] = mask[i] + "  " + word.Render(rows[i])
+	block := make([]string, len(mask))
+	for i := range mask {
+		block[i] = mask[i]
+		if words[i] != "" {
+			block[i] += "  " + words[i]
+		}
 	}
 	return block
 }
