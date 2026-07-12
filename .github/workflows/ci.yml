@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build, lint & test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64.8
+
+      - name: Test
+        run: go test -race -covermode=atomic -coverprofile=coverage.out ./internal/...
+
+      # The repository requires 100% statement coverage of the internal
+      # packages. The cmd/ entrypoint is thin glue and is intentionally excluded.
+      - name: Enforce 100% coverage
+        run: |
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {print $3}')
+          echo "Total coverage (internal): $total"
+          if [ "$total" != "100.0%" ]; then
+            echo "::error::coverage $total is below the required 100.0%"
+            exit 1
+          fi
