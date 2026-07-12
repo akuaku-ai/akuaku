@@ -228,8 +228,11 @@ func TestReadDir_ParsesValidAndSkipsTheRest(t *testing.T) {
 	if err := Write(dir, good); err != nil {
 		t.Fatal(err)
 	}
-	// Unparseable JSON, a non-JSON file, a subdirectory, and a broken symlink
-	// must all be skipped without failing the scan.
+	// Unparseable JSON, a non-JSON file, a subdirectory, a broken symlink, and
+	// the name overlay must all be skipped without failing the scan.
+	if err := WriteName(dir, "claude-1-a", "custom"); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "bad.json"), []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}

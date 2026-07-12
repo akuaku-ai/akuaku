@@ -65,7 +65,7 @@ func ReadDir(dir string) ([]Run, error) {
 
 	var runs []Run
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") || entry.Name() == namesFile {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
