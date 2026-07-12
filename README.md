@@ -54,6 +54,8 @@ Start the monitor:
 akuaku
 ```
 
+Navigate it with `↑`/`↓` (or `k`/`j`), press `Enter` to open a run and read its full answer, `Esc` to go back, and `q` to quit.
+
 Launch an agent:
 
 ```sh
@@ -61,6 +63,8 @@ akuaku run claude "refactor the auth module"
 akuaku run codex  "write tests for parser.go"
 akuaku run ollama "summarize this design" --model llama3.1
 ```
+
+The run prints the agent's answer when it finishes (and records it, so you can reopen it in the monitor with `Enter`).
 
 Flags:
 
