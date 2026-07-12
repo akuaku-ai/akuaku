@@ -1,16 +1,14 @@
-# golangci-lint configuration (v2 schema).
-# Keeps the curated default linters and adds revive; formatting is handled by
-# gofmt and goimports. Expand as the codebase grows.
-version: "2"
-
+# golangci-lint configuration (v1 schema).
+# Keeps the default linters and adds revive plus gofmt/goimports formatting.
 run:
   timeout: 5m
 
 linters:
   enable:
     - revive
-
-formatters:
-  enable:
     - gofmt
     - goimports
+
+linters-settings:
+  goimports:
+    local-prefixes: github.com/akuaku-ai/akuaku

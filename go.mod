@@ -1,6 +1,6 @@
 module github.com/akuaku-ai/akuaku
 
-go 1.26.0
+go 1.24.0
 
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
