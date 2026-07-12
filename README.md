@@ -61,6 +61,8 @@ akuaku
 
 It opens a full-screen dashboard: an overview strip (live/done/error counts, total tokens and cost) over a full-width table of agents, with running agents on top and each row colored by status. Navigate with `↑`/`↓` (or `k`/`j`), press `Enter` to open a run and read its full answer, `Esc` to go back, and `q` to quit.
 
+By default the list shows only **running** agents; press `a` to toggle the full history (every status) and back.
+
 Press `/` to filter the list as you type — matching name or model. Prefix the query with `-n ` or `-m ` to match only the name or only the model (e.g. `-m opus`). `Enter` applies the filter, `Esc` clears it.
 
 Launch an agent:

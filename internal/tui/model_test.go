@@ -281,12 +281,13 @@ func TestTickCmd_ReturnsCommand(t *testing.T) {
 	}
 }
 
-// threeRuns is a small fixture for cursor and detail tests.
+// threeRuns is a small fixture for cursor and render tests. They are running so
+// they appear in the default (running-only) view.
 func threeRuns() []state.Run {
 	return []state.Run{
-		{ID: "a", Name: "one", Backend: "claude", Status: state.StatusDone},
-		{ID: "b", Name: "two", Backend: "codex", Status: state.StatusDone},
-		{ID: "c", Name: "three", Backend: "ollama", Status: state.StatusDone},
+		{ID: "a", Name: "one", Backend: "claude", Status: state.StatusRunning},
+		{ID: "b", Name: "two", Backend: "codex", Status: state.StatusRunning},
+		{ID: "c", Name: "three", Backend: "ollama", Status: state.StatusRunning},
 	}
 }
 
@@ -361,7 +362,7 @@ func TestView_ListMarksSelectedRow(t *testing.T) {
 func TestView_DetailShowsOutput(t *testing.T) {
 	runs := []state.Run{{Name: "review", Backend: "claude", Status: state.StatusDone,
 		Task: "2 tips", Tokens: 124, Cost: 0.11, Output: "1. small PRs\n2. tests first"}}
-	out := Model{runs: runs, detail: true}.View()
+	out := Model{runs: runs, detail: true, showAll: true}.View()
 
 	for _, want := range []string{"review", "claude", "2 tips", "124", "0.11", "1. small PRs", "esc"} {
 		if !strings.Contains(out, want) {
@@ -372,7 +373,7 @@ func TestView_DetailShowsOutput(t *testing.T) {
 
 func TestView_DetailShowsErrorForFailedRun(t *testing.T) {
 	runs := []state.Run{{Name: "boom", Backend: "claude", Status: state.StatusError, Error: "model not found"}}
-	out := Model{runs: runs, detail: true}.View()
+	out := Model{runs: runs, detail: true, showAll: true}.View()
 	if !strings.Contains(out, "model not found") {
 		t.Errorf("detail view should show the error, got:\n%s", out)
 	}
@@ -502,7 +503,7 @@ func TestView_ColorsRunningDoneAndErrorRows(t *testing.T) {
 		{Name: "finished", Status: state.StatusDone},
 		{Name: "broken", Status: state.StatusError},
 	}
-	out := Model{runs: runs, width: 100, cursor: 1}.View()
+	out := Model{runs: runs, width: 100, cursor: 1, showAll: true}.View()
 	for _, want := range []string{"alive", "finished", "broken"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("row %q not rendered, got:\n%s", want, out)
@@ -546,7 +547,7 @@ func TestView_TinyHeightDoesNotCollapse(t *testing.T) {
 
 func TestView_TruncatesVeryLongName(t *testing.T) {
 	long := "this is an extremely long agent name that should be truncated to the column"
-	out := Model{runs: []state.Run{{Name: long, Status: state.StatusDone}}, width: 200}.View()
+	out := Model{runs: []state.Run{{Name: long, Status: state.StatusRunning}}, width: 200}.View()
 	if strings.Contains(out, long) {
 		t.Error("a name longer than the column should be truncated")
 	}
@@ -641,7 +642,7 @@ func TestView_FilterHidesNonMatchingRows(t *testing.T) {
 		{Name: "refactor auth", Backend: "claude", Model: "opus", Status: state.StatusDone},
 		{Name: "write tests", Backend: "codex", Model: "5.3-codex", Status: state.StatusDone},
 	}
-	out := Model{runs: runs, filter: "refactor", width: 100}.View()
+	out := Model{runs: runs, filter: "refactor", width: 100, showAll: true}.View()
 	if !strings.Contains(out, "refactor auth") {
 		t.Errorf("matching row should show, got:\n%s", out)
 	}
@@ -668,6 +669,65 @@ func TestView_EmptyFilterResultExplains(t *testing.T) {
 	out := Model{runs: threeRuns(), filter: "zzzznomatch", width: 100}.View()
 	if !strings.Contains(out, "no agents match") {
 		t.Errorf("an empty filter result should explain itself, got:\n%s", out)
+	}
+}
+
+func TestUpdate_ATogglesShowAll(t *testing.T) {
+	m := Model{runs: threeRuns()}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	if !next.(Model).showAll {
+		t.Error("a should switch to the full history")
+	}
+	back, _ := next.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	if back.(Model).showAll {
+		t.Error("a again should switch back to running-only")
+	}
+}
+
+func TestUpdate_AIgnoredInDetail(t *testing.T) {
+	next, _ := Model{runs: threeRuns(), detail: true}.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	if next.(Model).showAll {
+		t.Error("a should not toggle the view while in the detail pane")
+	}
+}
+
+func TestVisible_DefaultIsRunningOnly(t *testing.T) {
+	runs := []state.Run{
+		{Name: "live", Status: state.StatusRunning},
+		{Name: "done", Status: state.StatusDone},
+		{Name: "failed", Status: state.StatusError},
+	}
+	running := Model{runs: runs}.visible()
+	if len(running) != 1 || running[0].Name != "live" {
+		t.Errorf("default view should show only running agents, got %+v", running)
+	}
+	if all := (Model{runs: runs, showAll: true}).visible(); len(all) != 3 {
+		t.Errorf("showAll should reveal every agent, got %d", len(all))
+	}
+}
+
+func TestView_DefaultHidesNonRunningButOverviewCountsAll(t *testing.T) {
+	runs := []state.Run{
+		{Name: "live-agent", Status: state.StatusRunning},
+		{Name: "old-agent", Status: state.StatusDone},
+	}
+	out := Model{runs: runs, width: 100}.View()
+	if !strings.Contains(out, "live-agent") {
+		t.Errorf("running agent should be listed, got:\n%s", out)
+	}
+	if strings.Contains(out, "old-agent") {
+		t.Errorf("non-running agent should be hidden by default, got:\n%s", out)
+	}
+	// The overview still summarizes everything.
+	if !strings.Contains(out, "done 1") {
+		t.Errorf("overview should count all agents, got:\n%s", out)
+	}
+}
+
+func TestView_NoRunningAgentsHint(t *testing.T) {
+	out := Model{runs: []state.Run{{Name: "old", Status: state.StatusDone}}, width: 100}.View()
+	if !strings.Contains(out, "no running agents") {
+		t.Errorf("expected a hint to show all, got:\n%s", out)
 	}
 }
 
