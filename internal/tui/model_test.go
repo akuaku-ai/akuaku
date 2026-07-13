@@ -104,6 +104,116 @@ func TestDispatch_ScopeCommandsToggleGlobal(t *testing.T) {
 	}
 }
 
+func TestAttentionEvents_FirstLoadIsSilent(t *testing.T) {
+	if e := attentionEvents(nil, []state.Run{{ID: "a", Status: state.StatusDone}}); e != nil {
+		t.Errorf("opening the monitor must not ring for runs already in flight, got %v", e)
+	}
+}
+
+func TestAttentionEvents_EmitsOnTransitionToAttentionState(t *testing.T) {
+	prev := map[string]state.Status{
+		"a": state.StatusRunning, "b": state.StatusRunning, "c": state.StatusRunning,
+		"d": state.StatusDone, "f": state.StatusRunning, "g": state.StatusWaiting,
+	}
+	runs := []state.Run{
+		{ID: "a", Name: "A", Status: state.StatusDone},    // running → done: announce
+		{ID: "b", Name: "B", Status: state.StatusWaiting}, // running → waiting: announce
+		{ID: "c", Name: "C", Status: state.StatusRunning}, // unchanged: silent
+		{ID: "d", Name: "D", Status: state.StatusDone},    // unchanged: silent
+		{ID: "e", Name: "E", Status: state.StatusDone},    // new run: seed, silent
+		{ID: "f", Name: "F", Status: state.StatusError},   // running → error: announce
+		{ID: "g", Name: "G", Status: state.StatusRunning}, // waiting → running: silent (not attention)
+	}
+
+	events := attentionEvents(prev, runs)
+	if len(events) != 3 {
+		t.Fatalf("want 3 events (done, waiting, error), got %d: %v", len(events), events)
+	}
+	joined := strings.Join(events, " | ")
+	for _, want := range []string{"A finished", "B needs input", "F failed"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("events missing %q: %v", want, events)
+		}
+	}
+}
+
+func TestRunsMsg_SeedsThenRingsOnTransition(t *testing.T) {
+	orig := ringBell
+	rung := 0
+	ringBell = func() { rung++ }
+	defer func() { ringBell = orig }()
+
+	first, cmd1 := Model{}.Update(runsMsg{runs: []state.Run{{ID: "a", Name: "task", Status: state.StatusRunning}}})
+	if first.(Model).alert != "" || cmd1 != nil {
+		t.Fatalf("first load should seed silently: alert=%q cmd=%v", first.(Model).alert, cmd1)
+	}
+
+	second, cmd2 := first.(Model).Update(runsMsg{runs: []state.Run{{ID: "a", Name: "task", Status: state.StatusDone}}})
+	if !strings.Contains(second.(Model).alert, "finished") {
+		t.Errorf("alert = %q, want a finished banner", second.(Model).alert)
+	}
+	if cmd2 == nil {
+		t.Fatal("a transition should ring the bell")
+	}
+	if msg := cmd2(); msg != nil {
+		t.Errorf("bell cmd should return nil msg, got %v", msg)
+	}
+	if rung != 1 {
+		t.Errorf("bell rung %d times, want 1", rung)
+	}
+}
+
+func TestRingBell_DefaultDoesNotPanic(_ *testing.T) {
+	ringBell() // exercises the default stderr write for coverage
+}
+
+func TestView_ShowsAttentionBanner(t *testing.T) {
+	out := Model{runs: threeRuns(), width: 100, alert: "✔ task finished"}.View()
+	if !strings.Contains(out, "task finished") {
+		t.Errorf("attention banner not shown, got:\n%s", out)
+	}
+}
+
+func TestUpdate_KeypressDismissesAlert(t *testing.T) {
+	next, _ := Model{runs: threeRuns(), alert: "✔ x finished"}.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if next.(Model).alert != "" {
+		t.Errorf("a keypress should dismiss the banner, got %q", next.(Model).alert)
+	}
+}
+
+func TestComputeMetrics_CountsWaiting(t *testing.T) {
+	m := computeMetrics([]state.Run{
+		{Status: state.StatusWaiting},
+		{Status: state.StatusWaiting},
+		{Status: state.StatusRunning},
+	})
+	if m.waiting != 2 || m.running != 1 {
+		t.Errorf("waiting=%d running=%d, want 2/1", m.waiting, m.running)
+	}
+}
+
+func TestVisible_DefaultShowsWaitingAndRunning(t *testing.T) {
+	runs := []state.Run{
+		{ID: "r", Status: state.StatusRunning},
+		{ID: "w", Status: state.StatusWaiting},
+		{ID: "d", Status: state.StatusDone},
+	}
+	if got := (Model{runs: runs}).visible(); len(got) != 2 {
+		t.Fatalf("default view should show running + waiting (needs attention), got %d: %+v", len(got), got)
+	}
+}
+
+func TestView_WaitingRunShowsGlyphAndCount(t *testing.T) {
+	runs := []state.Run{{ID: "w", Name: "review", Status: state.StatusWaiting, StartedAt: time.Unix(90, 0)}}
+	out := Model{runs: runs, now: time.Unix(100, 0), width: 100}.View()
+	if !strings.Contains(out, "◐") {
+		t.Errorf("waiting run should show the attention glyph, got:\n%s", out)
+	}
+	if !strings.Contains(out, "waiting 1") {
+		t.Errorf("header should count waiting agents, got:\n%s", out)
+	}
+}
+
 func TestView_FooterShowsScope(t *testing.T) {
 	local := Model{runs: threeRuns(), width: 100}.View()
 	if !strings.Contains(local, "scope:local") {

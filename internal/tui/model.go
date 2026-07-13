@@ -121,6 +121,9 @@ type Model struct {
 	confirmKill bool   // whether the k-key kill is awaiting y/n confirmation
 	killPID     int    // the process the armed kill will signal
 	killName    string // the armed kill's target name, for the prompt
+
+	lastStatus map[string]state.Status // each run's status at the previous load, to detect transitions
+	alert      string                  // the most recent attention banner, cleared on the next keypress
 }
 
 // New returns a Model in its initial state, with process discovery on so
@@ -157,6 +160,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.confirmKill {
 			return m.confirmKillKey(msg)
 		}
+		m.alert = "" // any interaction dismisses the attention banner
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -200,13 +204,75 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.now = time.Time(msg)
 		return m, tea.Batch(tickCmd(), m.reload())
 	case runsMsg:
+		events := attentionEvents(m.lastStatus, msg.runs)
+		m.lastStatus = statusIndex(msg.runs)
 		sortRuns(msg.runs)
 		m.runs = msg.runs
 		m.err = msg.err
 		m.cursor = clamp(m.cursor, len(m.visible()))
+		if len(events) > 0 {
+			m.alert = events[len(events)-1]
+			return m, bellCmd()
+		}
 		return m, nil
 	}
 	return m, nil
+}
+
+// attentionEvents reports the banners for runs that just entered a state needing
+// the user — finished, failed, or waiting. prev is nil on the first load, which
+// seeds silently so opening the monitor never rings for runs already in flight.
+func attentionEvents(prev map[string]state.Status, runs []state.Run) []string {
+	if prev == nil {
+		return nil
+	}
+	var events []string
+	for _, run := range runs {
+		old, seen := prev[run.ID]
+		if !seen || old == run.Status {
+			continue
+		}
+		if banner, ok := attentionBanner(run); ok {
+			events = append(events, banner)
+		}
+	}
+	return events
+}
+
+// attentionBanner is the notice for a run that reached an attention state, and
+// whether its state is one worth announcing.
+func attentionBanner(run state.Run) (string, bool) {
+	switch run.Status {
+	case state.StatusWaiting:
+		return "◐ " + run.Name + " needs input", true
+	case state.StatusDone:
+		return "✔ " + run.Name + " finished", true
+	case state.StatusError:
+		return "✖ " + run.Name + " failed", true
+	}
+	return "", false
+}
+
+// statusIndex maps each run's ID to its status, for the next load to diff.
+func statusIndex(runs []state.Run) map[string]state.Status {
+	index := make(map[string]state.Status, len(runs))
+	for _, run := range runs {
+		index[run.ID] = run.Status
+	}
+	return index
+}
+
+// ringBell emits the terminal bell. It is a seam so tests observe the signal
+// without a real terminal; the default writes BEL to stderr, which rings the
+// terminal (and flags the tab in many emulators) without disturbing the display.
+var ringBell = func() { fmt.Fprint(os.Stderr, "\a") }
+
+// bellCmd rings the terminal bell as a command, off the pure Update path.
+func bellCmd() tea.Cmd {
+	return func() tea.Msg {
+		ringBell()
+		return nil
+	}
 }
 
 // filterKey edits the filter query while the filter input is active.
@@ -380,7 +446,7 @@ func (m Model) visible() []state.Run {
 		if !m.inScope(run) {
 			continue
 		}
-		if !m.showAll && run.Status != state.StatusRunning {
+		if !m.showAll && !isActive(run.Status) {
 			continue
 		}
 		if m.filter != "" && !matchesFilter(run, m.filter) {
@@ -389,6 +455,12 @@ func (m Model) visible() []state.Run {
 		out = append(out, run)
 	}
 	return out
+}
+
+// isActive reports whether a run is still in play — working or waiting on the
+// user — so the default view keeps both and hides only finished runs.
+func isActive(s state.Status) bool {
+	return s == state.StatusRunning || s == state.StatusWaiting
 }
 
 // inScope reports whether run belongs to the active scope. Global shows every
@@ -516,6 +588,7 @@ func formatCost(run state.Run) string {
 // metrics holds the aggregate counters derived from the current runs.
 type metrics struct {
 	running int
+	waiting int
 	done    int
 	errored int
 	tokens  int
@@ -529,6 +602,8 @@ func computeMetrics(runs []state.Run) metrics {
 		switch run.Status {
 		case state.StatusRunning:
 			m.running++
+		case state.StatusWaiting:
+			m.waiting++
 		case state.StatusDone:
 			m.done++
 		case state.StatusError:
@@ -545,6 +620,7 @@ var (
 	colorAccent   = brand.Accent          // aqua — the Akuaku accent
 	colorStone    = lipgloss.Color("240") // border gray
 	colorRunning  = lipgloss.Color("42")  // green — live
+	colorWaiting  = lipgloss.Color("214") // amber — needs the user
 	colorError    = lipgloss.Color("203") // red — failed
 	colorDone     = lipgloss.Color("246") // dim gray — finished
 	colorSelected = lipgloss.Color("236") // subtle highlight
@@ -641,9 +717,13 @@ func (m Model) footer() string {
 	return headerStyle.Render(hint)
 }
 
-// note is the last command result or the active filter, shown beside the hints.
+// note is the attention banner, last command result, or active filter, shown
+// beside the hints. The banner leads and is colored, so a finished or waiting
+// agent stands out until the next keypress dismisses it.
 func (m Model) note() string {
 	switch {
+	case m.alert != "":
+		return lipgloss.NewStyle().Bold(true).Foreground(colorWaiting).Render(m.alert)
 	case m.commandMsg != "":
 		return headerStyle.Render(m.commandMsg)
 	case m.filter != "":
@@ -665,7 +745,7 @@ func (m Model) header(width int, mt metrics) string {
 	}
 
 	left := []string{
-		fmt.Sprintf("running %d · done %d · err %d", mt.running, mt.done, mt.errored),
+		fmt.Sprintf("running %d · waiting %d · done %d · err %d", mt.running, mt.waiting, mt.done, mt.errored),
 		fmt.Sprintf("%s tokens · $%.2f", humanizeTokens(mt.tokens), mt.cost),
 		"● live",
 	}
@@ -766,6 +846,8 @@ func rowStyle(status state.Status, selected bool) lipgloss.Style {
 	switch status {
 	case state.StatusRunning:
 		style = style.Foreground(colorRunning)
+	case state.StatusWaiting:
+		style = style.Foreground(colorWaiting)
 	case state.StatusError:
 		style = style.Foreground(colorError)
 	default:
@@ -782,6 +864,8 @@ func statusGlyph(s state.Status) string {
 	switch s {
 	case state.StatusRunning:
 		return "●"
+	case state.StatusWaiting:
+		return "◐"
 	case state.StatusError:
 		return "✖"
 	default:

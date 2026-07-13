@@ -64,6 +64,45 @@ func TestHandle_UserPromptSetsTaskOnce(t *testing.T) {
 	}
 }
 
+func TestHandle_NotificationMarksWaiting(t *testing.T) {
+	dir := t.TempDir()
+	mustStart(t, dir, "s1")
+
+	if err := Handle("Notification", strings.NewReader(`{"session_id":"s1"}`), dir, time.Unix(15, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if run, _, _ := state.Read(dir, "s1"); run.Status != state.StatusWaiting {
+		t.Errorf("status = %q, want waiting", run.Status)
+	}
+}
+
+func TestHandle_StopMarksWaiting(t *testing.T) {
+	dir := t.TempDir()
+	mustStart(t, dir, "s1")
+
+	if err := Handle("Stop", strings.NewReader(`{"session_id":"s1"}`), dir, time.Unix(16, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if run, _, _ := state.Read(dir, "s1"); run.Status != state.StatusWaiting {
+		t.Errorf("status = %q, want waiting", run.Status)
+	}
+}
+
+func TestHandle_UserPromptResumesRunning(t *testing.T) {
+	dir := t.TempDir()
+	mustStart(t, dir, "s1")
+	if err := Handle("Notification", strings.NewReader(`{"session_id":"s1"}`), dir, time.Unix(15, 0)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Handle("UserPromptSubmit", strings.NewReader(`{"session_id":"s1","user_input":"go on"}`), dir, time.Unix(17, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if run, _, _ := state.Read(dir, "s1"); run.Status != state.StatusRunning {
+		t.Errorf("status = %q, want running once the user responds", run.Status)
+	}
+}
+
 func TestHandle_SessionEndCompletesRun(t *testing.T) {
 	dir := t.TempDir()
 	mustStart(t, dir, "s1")
@@ -102,11 +141,11 @@ func TestHandle_MissingSessionIDIsNoOp(t *testing.T) {
 
 func TestHandle_UnknownEventIsNoOp(t *testing.T) {
 	dir := t.TempDir()
-	if err := Handle("Stop", strings.NewReader(`{"session_id":"s1"}`), dir, time.Unix(1, 0)); err != nil {
+	if err := Handle("PreToolUse", strings.NewReader(`{"session_id":"s1"}`), dir, time.Unix(1, 0)); err != nil {
 		t.Fatal(err)
 	}
 	if runs, _ := state.ReadDir(dir); len(runs) != 0 {
-		t.Error("an unknown event should not write")
+		t.Error("an unhandled event should not write")
 	}
 }
 

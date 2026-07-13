@@ -61,7 +61,7 @@ akuaku
 
 It opens a full-screen dashboard: an overview strip (live/done/error counts, total tokens and cost) over a full-width table of agents, with running agents on top and each row colored by status. Navigate with `↑`/`↓` (or `k`/`j`), press `Enter` to open a run and read the exchange as a conversation, `Esc` to go back, and `q` to quit.
 
-By default the list shows only **running** agents; press `a` to toggle the full history (every status) and back.
+By default the list shows the agents still in play — **running** and **waiting** (`◐`, blocked on you for a permission prompt or your next message); press `a` to toggle the full history (every status) and back. When an agent finishes, fails, or starts waiting for you, Akuaku rings the terminal bell and shows a banner, so you can leave it open in a split and get pulled back only when an agent needs you.
 
 Press `/` to filter the list as you type — matching name or model. Prefix the query with `-n ` or `-m ` to match only the name or only the model (e.g. `-m opus`). `Enter` applies the filter, `Esc` clears it.
 
@@ -102,7 +102,7 @@ Not every Claude session starts with `akuaku run`. When you launch Claude Code d
 akuaku hook install
 ```
 
-This merges three hooks into your `~/.claude/settings.json` (existing settings and hooks are preserved; re-running is a no-op). From then on, every Claude Code session appears in the monitor as it starts, updates with your first prompt, and flips to `done` when it ends:
+This merges Akuaku's hooks into your `~/.claude/settings.json` (existing settings and hooks are preserved; re-running is a no-op). From then on, every Claude Code session appears in the monitor as it starts, updates with your first prompt, moves to `waiting` when it needs you (a permission prompt or a finished turn) and back to `running` when you reply, and flips to `done` when it ends:
 
 ```
 NAME              BACKEND  STATUS   DUR   TOKENS     COST
