@@ -3,6 +3,8 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,6 +17,10 @@ import (
 	"github.com/akuaku-ai/akuaku/internal/brand"
 	"github.com/akuaku-ai/akuaku/internal/state"
 )
+
+// getwd resolves the monitor's working directory, the root of the local scope.
+// It is a seam so scope filtering can be tested with a fixed root.
+var getwd = os.Getwd
 
 // dash marks a value the monitor cannot know. Sessions reflected from Claude
 // Code hooks report no token or cost usage, so both render as a dash rather than
@@ -107,15 +113,19 @@ type Model struct {
 	filtering  bool   // whether the filter input is being edited
 	showAll    bool   // false shows only running agents; true shows the full history
 	discover   bool   // whether running processes are scanned and merged in
+	global     bool   // false scopes the list to root; true shows every directory
+	root       string // the monitor's working directory: the local scope's root
 	command    string // command being typed after ":"
 	commanding bool   // whether the command input is being edited
 	commandMsg string // result of the last command, shown until the next one
 }
 
 // New returns a Model in its initial state, with process discovery on so
-// sessions already running when the monitor opens appear without any setup.
+// sessions already running when the monitor opens appear without any setup, and
+// the list scoped to the directory Akuaku was launched in.
 func New() Model {
-	return Model{discover: true}
+	root, _ := getwd()
+	return Model{discover: true, root: root}
 }
 
 // Init starts the refresh loop and loads the current runs.
@@ -257,6 +267,16 @@ func (m Model) dispatch(command string) (tea.Model, tea.Cmd) {
 			m.commandMsg = "discovery off"
 		}
 		return m, m.reload()
+	case "global":
+		m.global = true
+		m.commandMsg = "scope: global — every directory"
+		m.cursor = clamp(m.cursor, len(m.visible()))
+		return m, nil
+	case "local":
+		m.global = false
+		m.commandMsg = "scope: local — this directory"
+		m.cursor = clamp(m.cursor, len(m.visible()))
+		return m, nil
 	case "kill":
 		if m.cursor >= len(m.visible()) {
 			m.commandMsg = "no agent selected"
@@ -302,11 +322,15 @@ func killCmd(pid int, discover bool) tea.Cmd {
 	}
 }
 
-// visible is the run list the table shows: only running agents unless showAll is
-// set, further narrowed by the active text filter.
+// visible is the run list the table shows: scoped to the launch directory unless
+// global, only running agents unless showAll is set, and narrowed by the active
+// text filter.
 func (m Model) visible() []state.Run {
 	out := make([]state.Run, 0, len(m.runs))
 	for _, run := range m.runs {
+		if !m.inScope(run) {
+			continue
+		}
 		if !m.showAll && run.Status != state.StatusRunning {
 			continue
 		}
@@ -316,6 +340,29 @@ func (m Model) visible() []state.Run {
 		out = append(out, run)
 	}
 	return out
+}
+
+// inScope reports whether run belongs to the active scope. Global shows every
+// run; local keeps runs whose directory is the root or below it. A run with no
+// directory (an older run, or a producer that recorded none) is local-invisible
+// and appears only in global.
+func (m Model) inScope(run state.Run) bool {
+	if m.global || m.root == "" {
+		return true
+	}
+	return withinDir(run.Dir, m.root)
+}
+
+// withinDir reports whether dir is root or a directory beneath it.
+func withinDir(dir, root string) bool {
+	if dir == "" {
+		return false
+	}
+	rel, err := filepath.Rel(root, dir)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // matchesFilter reports whether run satisfies query. A leading `-n ` or `-m `
@@ -531,7 +578,11 @@ func (m Model) footer() string {
 	if m.showAll {
 		view = "a running"
 	}
-	hint := "↑/↓ move · enter open · / filter · : cmd · " + view + " · q quit"
+	scope := "scope:local"
+	if m.global {
+		scope = "scope:global"
+	}
+	hint := "↑/↓ move · enter open · / filter · : cmd · " + view + " · " + scope + " · q quit"
 	if note := m.note(); note != "" {
 		return note + headerStyle.Render("   ·   "+hint)
 	}

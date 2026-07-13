@@ -30,6 +30,7 @@ type payload struct {
 	Model        string `json:"model"`
 	SessionTitle string `json:"session_title"`
 	UserInput    string `json:"user_input"`
+	Cwd          string `json:"cwd"`
 }
 
 // Handle maps a Claude Code hook event, whose JSON payload is read from r, to a
@@ -51,6 +52,7 @@ func Handle(event string, r io.Reader, dir string, now time.Time) error {
 			Status:    state.StatusRunning,
 			Model:     p.Model,
 			Source:    sourceHook,
+			Dir:       p.Cwd,
 			StartedAt: now,
 		})
 	case "UserPromptSubmit":

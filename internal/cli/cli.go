@@ -6,6 +6,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -14,6 +15,10 @@ import (
 	"github.com/akuaku-ai/akuaku/internal/launcher"
 	"github.com/akuaku-ai/akuaku/internal/state"
 )
+
+// getwd resolves the working directory recorded on a launched run. It is a seam
+// so the dispatch can be tested without depending on the process's real cwd.
+var getwd = os.Getwd
 
 // Deps are the injectable behaviors the CLI drives.
 type Deps struct {
@@ -214,6 +219,7 @@ func runCommand(args []string, deps Deps) int {
 		return 2
 	}
 	opts.Dir = state.Dir()
+	opts.Cwd, _ = getwd()
 	if err := deps.Launch(opts); err != nil {
 		fmt.Fprintln(deps.Err, "akuaku:", err)
 		return 1

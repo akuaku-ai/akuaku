@@ -12,7 +12,7 @@ import (
 
 func TestHandle_SessionStartCreatesRunningRun(t *testing.T) {
 	dir := t.TempDir()
-	in := `{"session_id":"s1","model":"claude-sonnet-5","session_title":"my session"}`
+	in := `{"session_id":"s1","model":"claude-sonnet-5","session_title":"my session","cwd":"/home/u/proj"}`
 
 	if err := Handle("SessionStart", strings.NewReader(in), dir, time.Unix(10, 0).UTC()); err != nil {
 		t.Fatal(err)
@@ -27,6 +27,9 @@ func TestHandle_SessionStartCreatesRunningRun(t *testing.T) {
 	}
 	if run.Name != "my session" || run.Model != "claude-sonnet-5" {
 		t.Errorf("name/model: %q/%q", run.Name, run.Model)
+	}
+	if run.Dir != "/home/u/proj" {
+		t.Errorf("dir = %q, want the session's cwd so scope can place it", run.Dir)
 	}
 }
 

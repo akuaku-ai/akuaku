@@ -67,6 +67,8 @@ Press `/` to filter the list as you type — matching name or model. Prefix the 
 
 Press `:` for commands on the selected agent. `:rename <name>` gives it a custom label (stored as an overlay, so the run's own state is never touched). `:kill` stops a running agent Akuaku launched (it signals the recorded process); reflected sessions have no process to kill.
 
+By default the monitor is **scoped to the directory you launched it in**: it shows agents whose working directory is that folder or below it, so opening Akuaku inside a project shows that project's agents, not every session on the machine. `:global` widens the list to every directory; `:local` scopes it back. The active scope shows in the footer. Runs with no recorded directory (older runs) appear only in `:global`. Every producer records its directory — `akuaku run` and reflected hook sessions from their working directory, discovered processes from the OS.
+
 **Process discovery is on by default.** Hooks and `akuaku run` only record sessions that start *after* you wire them up — anything already running when you open the monitor would otherwise be invisible. So Akuaku scans the process table each tick and surfaces every running agent CLI (`claude`, `codex`, `ollama run`) it finds, labeled by its working directory, deduped by PID against what's already on disk. Discovered runs show `—` for tokens and cost and carry no task: Akuaku reads only what the OS exposes (command, PID, directory, start time), never transcripts. They vanish on their own when the process exits. Type `:discovery` to toggle it off (and back on).
 
 Launch an agent:

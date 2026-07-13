@@ -27,6 +27,94 @@ func TestNew_DiscoveryOnByDefault(t *testing.T) {
 	}
 }
 
+func TestNew_ScopesToLaunchDirectory(t *testing.T) {
+	old := getwd
+	defer func() { getwd = old }()
+	getwd = func() (string, error) { return "/home/u/proj", nil }
+
+	m := New()
+	if m.root != "/home/u/proj" {
+		t.Errorf("root = %q, want the launch directory", m.root)
+	}
+	if m.global {
+		t.Error("scope should default to local")
+	}
+}
+
+func TestWithinDir(t *testing.T) {
+	cases := []struct {
+		dir, root string
+		want      bool
+	}{
+		{"/root/proj", "/root/proj", true},     // the root itself
+		{"/root/proj/sub", "/root/proj", true}, // a directory below the root
+		{"/root", "/root/proj", false},         // the parent of the root
+		{"/root/other", "/root/proj", false},   // a sibling
+		{"", "/root/proj", false},              // no directory recorded
+		{"relative", "/root/proj", false},      // not resolvable against an absolute root
+	}
+	for _, c := range cases {
+		if got := withinDir(c.dir, c.root); got != c.want {
+			t.Errorf("withinDir(%q, %q) = %v, want %v", c.dir, c.root, got, c.want)
+		}
+	}
+}
+
+func TestInScope_GlobalAndEmptyRootShowEverything(t *testing.T) {
+	elsewhere := state.Run{Dir: "/other"}
+	if !(Model{global: true, root: "/root"}).inScope(elsewhere) {
+		t.Error("global scope should show every directory")
+	}
+	if !(Model{root: ""}).inScope(elsewhere) {
+		t.Error("an unknown root should not hide runs")
+	}
+	if (Model{root: "/root"}).inScope(elsewhere) {
+		t.Error("local scope should hide a run from another directory")
+	}
+}
+
+func TestVisible_LocalScopeKeepsOnlyRootAndBelow(t *testing.T) {
+	runs := []state.Run{
+		{ID: "here", Status: state.StatusRunning, Dir: "/root/proj"},
+		{ID: "below", Status: state.StatusRunning, Dir: "/root/proj/sub"},
+		{ID: "away", Status: state.StatusRunning, Dir: "/root/other"},
+		{ID: "nodir", Status: state.StatusRunning, Dir: ""},
+	}
+
+	local := Model{runs: runs, root: "/root/proj"}.visible()
+	if len(local) != 2 {
+		t.Fatalf("local scope should show 2 runs (root + below), got %d: %+v", len(local), local)
+	}
+
+	global := Model{runs: runs, root: "/root/proj", global: true}.visible()
+	if len(global) != 4 {
+		t.Fatalf("global scope should show all 4 runs, got %d", len(global))
+	}
+}
+
+func TestDispatch_ScopeCommandsToggleGlobal(t *testing.T) {
+	toGlobal, _ := Model{runs: threeRuns()}.dispatch("global")
+	if !toGlobal.(Model).global || !strings.Contains(toGlobal.(Model).commandMsg, "global") {
+		t.Errorf("`:global` did not switch to global: %+v", toGlobal.(Model).commandMsg)
+	}
+
+	toLocal, _ := toGlobal.(Model).dispatch("local")
+	if toLocal.(Model).global || !strings.Contains(toLocal.(Model).commandMsg, "local") {
+		t.Errorf("`:local` did not switch back to local: %+v", toLocal.(Model).commandMsg)
+	}
+}
+
+func TestView_FooterShowsScope(t *testing.T) {
+	local := Model{runs: threeRuns(), width: 100}.View()
+	if !strings.Contains(local, "scope:local") {
+		t.Errorf("footer should show local scope, got:\n%s", local)
+	}
+	global := Model{runs: threeRuns(), width: 100, global: true}.View()
+	if !strings.Contains(global, "scope:global") {
+		t.Errorf("footer should show global scope, got:\n%s", global)
+	}
+}
+
 func TestInit_ReturnsCommand(t *testing.T) {
 	if New().Init() == nil {
 		t.Fatal("Init() = nil, want a command")
