@@ -1,25 +1,16 @@
-# Akuaku 🗿
+<div align="center">
 
-A minimalist terminal UI to **monitor** and **launch** AI agents — using the CLIs you already log into, not API keys.
+# akuaku 🗿
 
-Akuaku subprocesses the tools you already have (Claude Code, Codex, Ollama) and shows every run in one live dashboard: status, duration, tokens, and cost. No API tokens, no hosted backend, no lock-in.
+### `top` for your AI agents.
 
-```
-  running 2 · done 3 · err 0               \|/    ▄▀█ █▄▀ █ █ ▄▀█ █▄▀ █ █
-  1.2k tokens · $0.32                       (● ●)  █▀█ █▀▄ █▄█ █▀█ █▀▄ █▄█
-  ● live                                     ╰—╯
-  ╭─────────────────────────────────────────────────────────────────────╮
-  │ Agents (5)                                                   ● live  │
-  │    NAME                       BACKEND  MODEL            DUR TOKENS COST│
-  │ >● claude session             claude   claude-opus-4-8 3:40     —    —│
-  │  ● proyecto code review       claude   opus-4.8        3:50   414 $0.00│
-  │  ✔ dame 2 tips de code review claude   opus-4.8        1:50   650 $0.21│
-  │  ✔ say hi in 2 words          ollama   llama3.1        2:00    20 $0.00│
-  ╰─────────────────────────────────────────────────────────────────────╯
-  ↑/↓ move · enter open · q quit
-```
+Monitor every **Claude Code**, **codex**, and **ollama** run in one live dashboard — driving the CLIs you already log into. No API keys, no tokens, no hosted backend.
 
-A colored tiki mask sits beside the wordmark; running agents lead the list, each row is colored by status, and the whole dashboard is framed with padding.
+![akuaku — a live dashboard of AI agents](docs/akuaku.gif)
+
+`go install github.com/akuaku-ai/akuaku/cmd/akuaku@latest` · try it now with `akuaku demo`
+
+</div>
 
 ## Why
 
@@ -150,6 +141,14 @@ Because the state JSON is the only channel, anything can be a producer — `akua
 - Reflect Codex and other agents started outside Akuaku (Claude Code sessions already work via `akuaku hook install`).
 - An embedded, interactive Claude session inside the TUI.
 - Alerts → webhooks → connectors.
+
+## FAQ
+
+**Does this use the Anthropic API or my tokens?**
+No. Akuaku launches your already-authenticated CLI (`claude`, `codex`, `ollama`) as a subprocess — the exact same one you run by hand. No API keys, no extra billing. It reads only what the tools and the OS expose; it never touches your transcripts.
+
+**Do I have to change how I run my agents?**
+No. Keep launching Claude Code however you like — `akuaku hook install` surfaces those sessions, and discovery finds anything already running. `akuaku run` is there when you want Akuaku to launch one for you.
 
 ## Development
 
