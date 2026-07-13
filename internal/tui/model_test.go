@@ -181,6 +181,28 @@ func TestUpdate_KeypressDismissesAlert(t *testing.T) {
 	}
 }
 
+func TestUpdate_SpinnerAdvancesFrameAndReschedules(t *testing.T) {
+	next, cmd := Model{frame: 4}.Update(spinnerMsg{})
+	if next.(Model).frame != 5 {
+		t.Errorf("frame = %d, want 5", next.(Model).frame)
+	}
+	if cmd == nil {
+		t.Fatal("the spinner should reschedule itself")
+	}
+	if _, ok := newSpinnerMsg(time.Time{}).(spinnerMsg); !ok {
+		t.Error("newSpinnerMsg should produce a spinnerMsg")
+	}
+}
+
+func TestGlyphFor_AnimatesRunningOnly(t *testing.T) {
+	if (Model{frame: 0}).glyphFor(state.StatusRunning) == (Model{frame: 1}).glyphFor(state.StatusRunning) {
+		t.Error("a running run's glyph should change with the animation frame")
+	}
+	if (Model{}).glyphFor(state.StatusDone) != "✔" {
+		t.Error("a finished run should use its static glyph, not the spinner")
+	}
+}
+
 func TestComputeMetrics_CountsWaiting(t *testing.T) {
 	m := computeMetrics([]state.Run{
 		{Status: state.StatusWaiting},

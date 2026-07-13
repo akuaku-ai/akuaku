@@ -21,6 +21,7 @@ type harness struct {
 	installCalled bool
 	setupCalled   bool
 	updateCalled  bool
+	demoCalled    bool
 }
 
 func newHarness(monitorErr, launchErr error) *harness {
@@ -40,6 +41,7 @@ func newHarness(monitorErr, launchErr error) *harness {
 		HookInstall: func() error { h.installCalled = true; return nil },
 		Setup:       func() error { h.setupCalled = true; return nil },
 		Update:      func() error { h.updateCalled = true; return nil },
+		Demo:        func() error { h.demoCalled = true; return nil },
 		In:          strings.NewReader(""),
 		Out:         &h.out,
 		Err:         &h.err,
@@ -300,6 +302,27 @@ func TestRun_UpdateErrorExitsNonZero(t *testing.T) {
 		t.Fatalf("code = %d, want 1", code)
 	}
 	if !strings.Contains(h.err.String(), "go not found") {
+		t.Errorf("stderr = %q", h.err.String())
+	}
+}
+
+func TestRun_Demo(t *testing.T) {
+	h := newHarness(nil, nil)
+	if code := Run([]string{"demo"}, h.deps); code != 0 {
+		t.Fatalf("code = %d, want 0", code)
+	}
+	if !h.demoCalled {
+		t.Error("demo was not run")
+	}
+}
+
+func TestRun_DemoErrorExitsNonZero(t *testing.T) {
+	h := newHarness(nil, nil)
+	h.deps.Demo = func() error { return errors.New("temp dir failed") }
+	if code := Run([]string{"demo"}, h.deps); code != 1 {
+		t.Fatalf("code = %d, want 1", code)
+	}
+	if !strings.Contains(h.err.String(), "temp dir failed") {
 		t.Errorf("stderr = %q", h.err.String())
 	}
 }

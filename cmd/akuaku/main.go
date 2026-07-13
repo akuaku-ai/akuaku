@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/akuaku-ai/akuaku/internal/backend"
 	"github.com/akuaku-ai/akuaku/internal/cli"
+	"github.com/akuaku-ai/akuaku/internal/demo"
 	"github.com/akuaku-ai/akuaku/internal/discover"
 	"github.com/akuaku-ai/akuaku/internal/hook"
 	"github.com/akuaku-ai/akuaku/internal/launcher"
@@ -42,6 +44,7 @@ func main() {
 		HookInstall: installHooks,
 		Setup:       runSetup,
 		Update:      runUpdate,
+		Demo:        runDemo,
 		In:          os.Stdin,
 		Out:         os.Stdout,
 		Err:         os.Stderr,
@@ -100,6 +103,57 @@ func runUpdate() error {
 func runMonitor() error {
 	_, err := tea.NewProgram(tui.New(), tea.WithAltScreen()).Run()
 	return err
+}
+
+// runDemo shows the monitor against a simulated fleet in a throwaway state
+// directory, so anyone can see Akuaku alive with no agents of their own. A
+// background writer advances the demo frames while the monitor reads them, and
+// the directory is removed on exit.
+func runDemo() error {
+	dir, err := os.MkdirTemp("", "akuaku-demo-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	if err := os.Setenv("AKUAKU_STATE_DIR", dir); err != nil {
+		return err
+	}
+	tui.SetProcessSource(func() []state.Run { return nil }) // show only the demo's own agents
+
+	cwd, _ := os.Getwd()
+	stop := make(chan struct{})
+	go writeDemoFrames(dir, cwd, time.Now(), stop)
+
+	err = runMonitor()
+	close(stop)
+	return err
+}
+
+// writeDemoFrames advances the demo one frame per second — writing the agents
+// present in each frame and removing any that have left it — until stop closes.
+func writeDemoFrames(dir, cwd string, base time.Time, stop <-chan struct{}) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for tick := 0; ; tick++ {
+		present := map[string]bool{}
+		for _, run := range demo.Frame(tick, base) {
+			run.Dir = cwd
+			present[run.ID] = true
+			_ = state.Write(dir, run)
+		}
+		entries, _ := os.ReadDir(dir)
+		for _, entry := range entries {
+			id := strings.TrimSuffix(entry.Name(), ".json")
+			if strings.HasSuffix(entry.Name(), ".json") && !present[id] {
+				_ = os.Remove(filepath.Join(dir, entry.Name()))
+			}
+		}
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 // installHooks merges Akuaku's hooks into the user's Claude Code settings,
