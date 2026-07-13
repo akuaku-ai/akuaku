@@ -5,6 +5,16 @@ package state
 
 import "time"
 
+// Source labels who produced a run, so the monitor can tell what metadata to
+// expect. An empty source means Akuaku launched it directly with full metrics.
+const (
+	// SourceHook marks a run reflected from a Claude Code hook.
+	SourceHook = "hook"
+	// SourceProcess marks a run discovered by scanning the process table; it
+	// carries no task or usage, only what the OS knows.
+	SourceProcess = "process"
+)
+
 // Status is the lifecycle state of a run.
 type Status string
 
@@ -28,6 +38,7 @@ type Run struct {
 	Model     string     `json:"model,omitempty"`
 	Source    string     `json:"source,omitempty"`
 	PID       int        `json:"pid,omitempty"`
+	Dir       string     `json:"dir,omitempty"`
 	StartedAt time.Time  `json:"started_at"`
 	EndedAt   *time.Time `json:"ended_at"`
 	Tokens    int        `json:"tokens"`

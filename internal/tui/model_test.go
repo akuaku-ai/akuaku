@@ -97,9 +97,9 @@ func TestLoadRuns_ReadsStateDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	msg, ok := loadRuns().(runsMsg)
+	msg, ok := loadRuns(false).(runsMsg)
 	if !ok {
-		t.Fatalf("loadRuns returned %T, want runsMsg", loadRuns())
+		t.Fatalf("loadRuns returned %T, want runsMsg", loadRuns(false))
 	}
 	if msg.err != nil {
 		t.Fatalf("unexpected error: %v", msg.err)
@@ -116,7 +116,7 @@ func TestLoadRuns_ReportsError(t *testing.T) {
 	}
 	t.Setenv("AKUAKU_STATE_DIR", file)
 
-	if msg := loadRuns().(runsMsg); msg.err == nil {
+	if msg := loadRuns(false).(runsMsg); msg.err == nil {
 		t.Fatal("expected an error when the state dir is a file")
 	}
 }
@@ -824,9 +824,81 @@ func TestLoadRuns_AppliesNameOverlay(t *testing.T) {
 	if err := state.WriteName(dir, "run-1", "custom"); err != nil {
 		t.Fatal(err)
 	}
-	msg := loadRuns().(runsMsg)
+	msg := loadRuns(false).(runsMsg)
 	if len(msg.runs) != 1 || msg.runs[0].Name != "custom" {
 		t.Errorf("overlay name not applied: %+v", msg.runs)
+	}
+}
+
+func TestDispatch_DiscoveryTogglesOnAndOff(t *testing.T) {
+	on, _ := Model{runs: threeRuns()}.dispatch("discovery")
+	if !on.(Model).discover {
+		t.Fatal("discovery should be on after the first toggle")
+	}
+	if !strings.Contains(on.(Model).commandMsg, "discovery on") {
+		t.Errorf("on message = %q", on.(Model).commandMsg)
+	}
+
+	off, _ := on.(Model).dispatch("discovery")
+	if off.(Model).discover {
+		t.Error("discovery should be off after the second toggle")
+	}
+	if !strings.Contains(off.(Model).commandMsg, "discovery off") {
+		t.Errorf("off message = %q", off.(Model).commandMsg)
+	}
+}
+
+func TestLoadRuns_MergesDiscoveredOnlyWhenEnabled(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("AKUAKU_STATE_DIR", dir)
+	// An agent launched by Akuaku, recorded on disk with its PID.
+	if err := state.Write(dir, state.Run{ID: "claude-1", Backend: "claude", Status: state.StatusRunning, PID: 100}); err != nil {
+		t.Fatal(err)
+	}
+	restore := listProcesses
+	defer func() { listProcesses = restore }()
+	listProcesses = func() []state.Run {
+		return []state.Run{
+			{ID: "proc-100", Backend: "claude", Status: state.StatusRunning, PID: 100}, // same PID: deduped
+			{ID: "proc-200", Backend: "codex", Status: state.StatusRunning, PID: 200},  // new: surfaced
+		}
+	}
+
+	if msg := loadRuns(true).(runsMsg); len(msg.runs) != 2 {
+		t.Fatalf("with discovery on want 2 runs (on-disk + new), got %d: %+v", len(msg.runs), msg.runs)
+	}
+	if msg := loadRuns(false).(runsMsg); len(msg.runs) != 1 {
+		t.Fatalf("with discovery off want only the on-disk run, got %d", len(msg.runs))
+	}
+}
+
+func TestReload_CapturesDiscoverFlagAndScans(t *testing.T) {
+	t.Setenv("AKUAKU_STATE_DIR", t.TempDir())
+	restore := listProcesses
+	defer func() { listProcesses = restore }()
+	listProcesses = func() []state.Run {
+		return []state.Run{{ID: "proc-1", Backend: "claude", Status: state.StatusRunning, PID: 1}}
+	}
+
+	msg := Model{discover: true}.reload()().(runsMsg)
+	if len(msg.runs) != 1 {
+		t.Fatalf("reload with discovery on should include the discovered run, got %d", len(msg.runs))
+	}
+}
+
+func TestListProcesses_DefaultIsInert(t *testing.T) {
+	if got := listProcesses(); got != nil {
+		t.Errorf("the default process source should return nil, got %+v", got)
+	}
+}
+
+func TestSetProcessSource_WiresTheScanner(t *testing.T) {
+	restore := listProcesses
+	defer func() { listProcesses = restore }()
+
+	SetProcessSource(func() []state.Run { return []state.Run{{PID: 7}} })
+	if got := listProcesses(); len(got) != 1 || got[0].PID != 7 {
+		t.Errorf("SetProcessSource did not wire the source: %+v", got)
 	}
 }
 

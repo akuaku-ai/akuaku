@@ -45,9 +45,11 @@ type runsMsg struct {
 	err  error
 }
 
-// loadRuns scans the state directory and applies the custom-name overlay. It
-// runs as a command so filesystem I/O stays out of the pure Update path.
-func loadRuns() tea.Msg {
+// loadRuns scans the state directory and applies the custom-name overlay. When
+// discover is set it also merges the running agent processes so sessions started
+// before the monitor opened appear. It runs as a command so filesystem and
+// process I/O stays out of the pure Update path.
+func loadRuns(discover bool) tea.Msg {
 	dir := state.Dir()
 	runs, err := state.ReadDir(dir)
 	names := state.ReadNames(dir)
@@ -56,7 +58,37 @@ func loadRuns() tea.Msg {
 			runs[i].Name = name
 		}
 	}
+	if discover {
+		runs = mergeDiscovered(runs, listProcesses())
+	}
 	return runsMsg{runs: runs, err: err}
+}
+
+// listProcesses yields the currently running agent processes as runs. It is a
+// seam: the binary wires it to a gopsutil-backed scan, tests inject fixtures,
+// and the default returns nothing so discovery stays inert until it is enabled.
+var listProcesses = func() []state.Run { return nil }
+
+// SetProcessSource wires the process scanner the monitor merges in for
+// `:discovery`. The binary calls it once at startup.
+func SetProcessSource(f func() []state.Run) { listProcesses = f }
+
+// mergeDiscovered appends discovered runs whose process is not already on disk,
+// deduped by PID so an agent Akuaku launched (which records its PID) is never
+// shown twice.
+func mergeDiscovered(onDisk, discovered []state.Run) []state.Run {
+	seen := make(map[int]bool, len(onDisk))
+	for _, run := range onDisk {
+		if run.PID != 0 {
+			seen[run.PID] = true
+		}
+	}
+	for _, run := range discovered {
+		if !seen[run.PID] {
+			onDisk = append(onDisk, run)
+		}
+	}
+	return onDisk
 }
 
 // Model is the root Bubble Tea model for the monitor. It holds only what it
@@ -74,6 +106,7 @@ type Model struct {
 	filter     string // active filter query; empty shows everything
 	filtering  bool   // whether the filter input is being edited
 	showAll    bool   // false shows only running agents; true shows the full history
+	discover   bool   // whether running processes are scanned and merged in
 	command    string // command being typed after ":"
 	commanding bool   // whether the command input is being edited
 	commandMsg string // result of the last command, shown until the next one
@@ -86,7 +119,15 @@ func New() Model {
 
 // Init starts the refresh loop and loads the current runs.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(tickCmd(), loadRuns)
+	return tea.Batch(tickCmd(), m.reload())
+}
+
+// reload scans the state directory — and, when discovery is on, running
+// processes — off the Update path. It captures the flag so the async command
+// reflects the setting in force when it was scheduled.
+func (m Model) reload() tea.Cmd {
+	discover := m.discover
+	return func() tea.Msg { return loadRuns(discover) }
 }
 
 // Update handles an incoming message and returns the next model and command.
@@ -136,7 +177,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tickMsg:
 		m.now = time.Time(msg)
-		return m, tea.Batch(tickCmd(), loadRuns)
+		return m, tea.Batch(tickCmd(), m.reload())
 	case runsMsg:
 		sortRuns(msg.runs)
 		m.runs = msg.runs
@@ -206,7 +247,15 @@ func (m Model) dispatch(command string) (tea.Model, tea.Cmd) {
 		}
 		id := m.visible()[m.cursor].ID
 		m.commandMsg = "renamed to " + name
-		return m, renameCmd(id, name)
+		return m, renameCmd(id, name, m.discover)
+	case "discovery":
+		m.discover = !m.discover
+		if m.discover {
+			m.commandMsg = "discovery on — scanning running agents"
+		} else {
+			m.commandMsg = "discovery off"
+		}
+		return m, m.reload()
 	case "kill":
 		if m.cursor >= len(m.visible()) {
 			m.commandMsg = "no agent selected"
@@ -220,7 +269,7 @@ func (m Model) dispatch(command string) (tea.Model, tea.Cmd) {
 			m.commandMsg = "can't kill this agent — no process (a reflected session?)"
 		default:
 			m.commandMsg = "killing " + run.Name
-			return m, killCmd(run.PID)
+			return m, killCmd(run.PID, m.discover)
 		}
 		return m, nil
 	default:
@@ -230,10 +279,10 @@ func (m Model) dispatch(command string) (tea.Model, tea.Cmd) {
 }
 
 // renameCmd records a custom name for id and reloads so the change shows at once.
-func renameCmd(id, name string) tea.Cmd {
+func renameCmd(id, name string, discover bool) tea.Cmd {
 	return func() tea.Msg {
 		_ = state.WriteName(state.Dir(), id, name)
-		return loadRuns()
+		return loadRuns(discover)
 	}
 }
 
@@ -245,10 +294,10 @@ var killProcess = func(pid int) error {
 
 // killCmd terminates the agent process with the given PID, then reloads so its
 // new terminal state (recorded by its launcher) shows.
-func killCmd(pid int) tea.Cmd {
+func killCmd(pid int, discover bool) tea.Cmd {
 	return func() tea.Msg {
 		_ = killProcess(pid)
-		return loadRuns()
+		return loadRuns(discover)
 	}
 }
 
