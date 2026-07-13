@@ -53,6 +53,14 @@ Requires Go 1.24+. To launch agents you also need the `claude`, `codex`, and/or 
 
 ## Usage
 
+See it alive with no agents of your own — a simulated fleet, zero setup:
+
+```sh
+akuaku demo
+```
+
+It writes to a throwaway directory (your real runs are untouched) and cleans up when you quit with `q`.
+
 Start the monitor:
 
 ```sh

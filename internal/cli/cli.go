@@ -28,6 +28,7 @@ type Deps struct {
 	HookInstall func() error
 	Setup       func() error
 	Update      func() error
+	Demo        func() error
 	In          io.Reader
 	Out         io.Writer
 	Err         io.Writer
@@ -61,6 +62,12 @@ func Run(args []string, deps Deps) int {
 			return 1
 		}
 		return 0
+	case "demo":
+		if err := deps.Demo(); err != nil {
+			fmt.Fprintln(deps.Err, "akuaku:", err)
+			return 1
+		}
+		return 0
 	case "-h", "--help", "help":
 		fmt.Fprint(deps.Out, helpText(deps.Version))
 		return 0
@@ -78,7 +85,7 @@ func Run(args []string, deps Deps) int {
 }
 
 // knownCommands are the verbs `suggest` matches a typo against.
-var knownCommands = []string{"run", "hook", "install", "setup", "update", "version", "help"}
+var knownCommands = []string{"run", "hook", "install", "setup", "update", "demo", "version", "help"}
 
 // suggest returns the known command closest to cmd, or "" when nothing is within
 // a two-edit distance — so a genuine typo gets a hint but noise does not.
@@ -131,6 +138,7 @@ type row struct{ name, desc string }
 var (
 	helpCommands = []row{
 		{"(no args)", "open the live dashboard"},
+		{"demo", "watch a simulated fleet — zero setup"},
 		{"run <backend> <task>", "launch an agent and print its answer"},
 		{"hook install", "reflect Claude sessions from other terminals"},
 		{"setup", "add akuaku to your PATH & check backends"},
@@ -139,9 +147,9 @@ var (
 		{"help", "show this help"},
 	}
 	helpExamples = []row{
+		{"akuaku demo", "try it with a simulated fleet"},
 		{"akuaku", "open the monitor"},
 		{`akuaku run claude "refactor auth.go"`, "ask Claude, see the answer"},
-		{`akuaku run ollama "hola" -m llama3.1`, "run a local model"},
 		{"akuaku hook install", "surface every Claude session"},
 	}
 	helpFlags = []row{

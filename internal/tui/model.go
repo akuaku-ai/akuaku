@@ -27,8 +27,12 @@ var getwd = os.Getwd
 // a misleading zero.
 const dash = "—"
 
-// tickInterval is how often the monitor refreshes its view.
+// tickInterval is how often the monitor refreshes its runs from disk.
 const tickInterval = time.Second
+
+// spinnerInterval is how often the running spinner advances. It is faster than
+// the refresh so animation stays smooth without re-reading the state directory.
+const spinnerInterval = 120 * time.Millisecond
 
 // tickMsg is delivered on every refresh tick. It carries the tick time so the
 // model never reads the clock itself, which keeps Update and View deterministic.
@@ -43,6 +47,18 @@ func newTickMsg(t time.Time) tea.Msg {
 // tickCmd schedules the next refresh tick.
 func tickCmd() tea.Cmd {
 	return tea.Tick(tickInterval, newTickMsg)
+}
+
+// spinnerMsg is delivered on every animation frame.
+type spinnerMsg struct{}
+
+// newSpinnerMsg wraps a time as a spinnerMsg. Named so the spinner can be tested
+// without waiting for a real frame.
+func newSpinnerMsg(time.Time) tea.Msg { return spinnerMsg{} }
+
+// spinnerCmd schedules the next animation frame.
+func spinnerCmd() tea.Cmd {
+	return tea.Tick(spinnerInterval, newSpinnerMsg)
 }
 
 // runsMsg carries the result of scanning the state directory.
@@ -124,6 +140,7 @@ type Model struct {
 
 	lastStatus map[string]state.Status // each run's status at the previous load, to detect transitions
 	alert      string                  // the most recent attention banner, cleared on the next keypress
+	frame      int                     // animation frame, advanced by the spinner tick
 }
 
 // New returns a Model in its initial state, with process discovery on so
@@ -134,9 +151,9 @@ func New() Model {
 	return Model{discover: true, root: root}
 }
 
-// Init starts the refresh loop and loads the current runs.
+// Init starts the refresh loop, the spinner animation, and the first load.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(tickCmd(), m.reload())
+	return tea.Batch(tickCmd(), spinnerCmd(), m.reload())
 }
 
 // reload scans the state directory — and, when discovery is on, running
@@ -200,6 +217,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		return m, nil
+	case spinnerMsg:
+		m.frame++
+		return m, spinnerCmd()
 	case tickMsg:
 		m.now = time.Time(msg)
 		return m, tea.Batch(tickCmd(), m.reload())
@@ -805,7 +825,7 @@ func (m Model) table(width int, runs []state.Run, boxHeight int) string {
 			if i == m.cursor {
 				marker = ">"
 			}
-			row := formatRow(marker, statusGlyph(run.Status), run.Name, run.Backend, run.Model,
+			row := formatRow(marker, m.glyphFor(run.Status), run.Name, run.Backend, run.Model,
 				formatDuration(duration(run, m.now)), formatTokens(run), formatCost(run), nameW)
 			b.WriteByte('\n')
 			b.WriteString(rowStyle(run.Status, i == m.cursor).Render(row))
@@ -857,6 +877,19 @@ func rowStyle(status state.Status, selected bool) lipgloss.Style {
 		style = style.Background(colorSelected).Bold(true)
 	}
 	return style
+}
+
+// spinnerFrames animate a running row so the dashboard reads as alive between
+// state refreshes. Each is one display column wide, like the static glyphs.
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+// glyphFor is the leading marker for a run: a spinner frame while running,
+// otherwise the run's static status glyph.
+func (m Model) glyphFor(s state.Status) string {
+	if s == state.StatusRunning {
+		return spinnerFrames[m.frame%len(spinnerFrames)]
+	}
+	return statusGlyph(s)
 }
 
 // statusGlyph is the leading status marker for a run.
