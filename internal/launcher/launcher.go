@@ -22,13 +22,16 @@ import (
 // code, and a start error (nil once the process actually ran).
 type commandRunner func(name string, args []string, onStart func(pid int)) (stdout, stderr []byte, exitCode int, err error)
 
-// Options configures a single run.
+// Options configures a single run. Dir is the state directory to write to; Cwd
+// is the working directory the agent runs in, recorded on the run so the monitor
+// can scope it to a folder.
 type Options struct {
 	Backend string
 	Task    string
 	Model   string
 	Name    string
 	Dir     string
+	Cwd     string
 }
 
 // Launcher records agent runs. Its dependencies are injectable so the lifecycle
@@ -74,6 +77,7 @@ func (l *Launcher) Run(opts Options) error {
 		Status:    state.StatusRunning,
 		Task:      opts.Task,
 		Model:     opts.Model,
+		Dir:       opts.Cwd,
 		StartedAt: started,
 	}
 	fmt.Fprintf(l.out, "running %s…\n", opts.Backend)

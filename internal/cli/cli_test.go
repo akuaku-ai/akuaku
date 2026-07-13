@@ -82,6 +82,18 @@ func TestRun_LaunchesWithBackendAndTask(t *testing.T) {
 	}
 }
 
+func TestRun_RecordsWorkingDirectory(t *testing.T) {
+	h := newHarness(nil, nil)
+	old := getwd
+	getwd = func() (string, error) { return "/home/u/proj", nil }
+	defer func() { getwd = old }()
+
+	Run([]string{"run", "claude", "task"}, h.deps)
+	if h.launched[0].Cwd != "/home/u/proj" {
+		t.Errorf("Cwd = %q, want the working directory", h.launched[0].Cwd)
+	}
+}
+
 func TestRun_ParsesModelAndName(t *testing.T) {
 	h := newHarness(nil, nil)
 	Run([]string{"run", "claude", "task", "--model", "opus", "--name", "bot"}, h.deps)

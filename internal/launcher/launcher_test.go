@@ -180,6 +180,14 @@ func TestRun_DefaultsNameToTask(t *testing.T) {
 	}
 }
 
+func TestRun_RecordsWorkingDirectory(t *testing.T) {
+	l, written := capturingLauncher(t, fakeRunner("{}", "", 0, nil))
+	_ = l.Run(Options{Backend: "claude", Task: "t", Dir: "state-dir", Cwd: "/home/u/proj"})
+	if got := (*written)[0].Dir; got != "/home/u/proj" {
+		t.Errorf("run.Dir = %q, want the working directory so scope filtering can place it", got)
+	}
+}
+
 func TestExecRun_Success(t *testing.T) {
 	gotPID := 0
 	stdout, _, code, err := execRun("echo", []string{"hello"}, func(pid int) { gotPID = pid })
