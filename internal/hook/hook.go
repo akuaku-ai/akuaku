@@ -56,10 +56,18 @@ func Handle(event string, r io.Reader, dir string, now time.Time) error {
 			StartedAt: now,
 		})
 	case "UserPromptSubmit":
+		// The user responded, so the agent is working again — clear any waiting.
 		return mutate(dir, p.SessionID, func(run *state.Run) {
 			if run.Task == "" {
 				run.Task = p.UserInput
 			}
+			run.Status = state.StatusRunning
+		})
+	case "Notification", "Stop":
+		// Claude Code needs the user: a permission prompt, idle input, or a
+		// finished turn. Surface it as waiting so the monitor can call attention.
+		return mutate(dir, p.SessionID, func(run *state.Run) {
+			run.Status = state.StatusWaiting
 		})
 	case "SessionEnd":
 		return mutate(dir, p.SessionID, func(run *state.Run) {

@@ -18,10 +18,11 @@ const (
 // Status is the lifecycle state of a run.
 type Status string
 
-// The lifecycle statuses of a run. A run starts running and transitions exactly
-// once to a terminal status.
+// The lifecycle statuses of a run. A run starts running and may move between
+// running and waiting (blocked on the user) before reaching a terminal status.
 const (
 	StatusRunning Status = "running"
+	StatusWaiting Status = "waiting" // blocked on the user (a permission prompt or idle)
 	StatusDone    Status = "done"
 	StatusError   Status = "error"
 )

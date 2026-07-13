@@ -18,7 +18,7 @@ var (
 
 // installEvents are the Claude Code lifecycle events Akuaku reflects into the
 // monitor. Keep in sync with the switch in Handle.
-var installEvents = []string{"SessionStart", "UserPromptSubmit", "SessionEnd"}
+var installEvents = []string{"SessionStart", "UserPromptSubmit", "Notification", "Stop", "SessionEnd"}
 
 // hookEntry is one Claude Code hook command. The fields mirror Claude Code's
 // settings schema so unrelated hooks survive a round trip untouched.
