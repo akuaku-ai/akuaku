@@ -25,9 +25,14 @@ import (
 	"github.com/akuaku-ai/akuaku/internal/updater"
 )
 
+// version is the build's reported version, overridden at link time via
+// -ldflags "-X main.version=...". It stays "dev" for a plain `go build`.
+var version = "dev"
+
 func main() {
 	deps := cli.Deps{
 		Monitor: runMonitor,
+		Version: version,
 		Launch:  launcher.New(os.Stdout).Run,
 		Hook: func(event string, r io.Reader) error {
 			return hook.Handle(event, r, state.Dir(), time.Now())

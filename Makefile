@@ -4,6 +4,9 @@ GO           ?= go
 BINARY       := akuaku
 PKG          := ./...
 COVERPROFILE := coverage.out
+# Stamp the binary with the current tag (or commit) so `akuaku version` is real.
+VERSION      := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS      := -X main.version=$(VERSION)
 
 .DEFAULT_GOAL := help
 
@@ -14,11 +17,11 @@ help: ## Show this help.
 
 .PHONY: build
 build: ## Build the akuaku binary into bin/.
-	$(GO) build -o bin/$(BINARY) ./cmd/$(BINARY)
+	$(GO) build -ldflags "$(LDFLAGS)" -o bin/$(BINARY) ./cmd/$(BINARY)
 
 .PHONY: run
 run: ## Run akuaku from source.
-	$(GO) run ./cmd/$(BINARY)
+	$(GO) run -ldflags "$(LDFLAGS)" ./cmd/$(BINARY)
 
 .PHONY: fmt
 fmt: ## Format the code with gofmt.

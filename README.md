@@ -7,7 +7,7 @@ Akuaku subprocesses the tools you already have (Claude Code, Codex, Ollama) and 
 ```
   running 2 · done 3 · err 0               \|/    ▄▀█ █▄▀ █ █ ▄▀█ █▄▀ █ █
   1.2k tokens · $0.32                       (● ●)  █▀█ █▀▄ █▄█ █▀█ █▀▄ █▄█
-  ● live                                     ╰—╯   \|/ akuaku \|/
+  ● live                                     ╰—╯
   ╭─────────────────────────────────────────────────────────────────────╮
   │ Agents (5)                                                   ● live  │
   │    NAME                       BACKEND  MODEL            DUR TOKENS COST│
@@ -85,6 +85,8 @@ Flags:
 | `-n`, `--name` | Display name for the run |
 
 Each run writes one JSON file to the state directory; the monitor reads them on a one-second tick.
+
+Run `akuaku help` for the full command list and `akuaku version` to print the build version.
 
 ## Reflect sessions from other terminals
 
