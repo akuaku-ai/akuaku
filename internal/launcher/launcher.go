@@ -97,6 +97,7 @@ func (l *Launcher) Run(opts Options) error {
 
 	ended := l.now()
 	run.EndedAt = &ended
+	run.LastMessage = &ended // the answer arriving is this run's last message
 	run.ExitCode = &exitCode
 	out := b.Parse(stdout, stderr)
 	run.Tokens, run.Cost, run.Output = out.Tokens, out.Cost, out.Text

@@ -128,6 +128,7 @@ type Model struct {
 	filter      string // active filter query; empty shows everything
 	filtering   bool   // whether the filter input is being edited
 	showAll     bool   // false shows only running agents; true shows the full history
+	history     bool   // whether the dedicated history view (dated, recency-sorted) is open
 	discover    bool   // whether running processes are scanned and merged in
 	global      bool   // false scopes the list to root; true shows every directory
 	root        string // the monitor's working directory: the local scope's root
@@ -198,7 +199,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.detail = true
 			}
 		case "esc":
-			m.detail = false
+			// Peel one layer at a time: close the detail first, then history.
+			if m.detail {
+				m.detail = false
+			} else {
+				m.history = false
+			}
 		case "/":
 			if !m.detail {
 				m.filtering = true
@@ -206,6 +212,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "a":
 			if !m.detail {
 				m.showAll = !m.showAll
+				m.cursor = clamp(m.cursor, len(m.visible()))
+			}
+		case "h":
+			if !m.detail {
+				m.history = !m.history
 				m.cursor = clamp(m.cursor, len(m.visible()))
 			}
 		case ":":
@@ -458,15 +469,16 @@ func killCmd(pid int, discover bool) tea.Cmd {
 }
 
 // visible is the run list the table shows: scoped to the launch directory unless
-// global, only running agents unless showAll is set, and narrowed by the active
-// text filter.
+// global, only active agents unless showAll or the history view is open, and
+// narrowed by the active text filter. History is sorted most-recent first.
 func (m Model) visible() []state.Run {
+	showAll := m.showAll || m.history
 	out := make([]state.Run, 0, len(m.runs))
 	for _, run := range m.runs {
 		if !m.inScope(run) {
 			continue
 		}
-		if !m.showAll && !isActive(run.Status) {
+		if !showAll && !isActive(run.Status) {
 			continue
 		}
 		if m.filter != "" && !matchesFilter(run, m.filter) {
@@ -474,7 +486,25 @@ func (m Model) visible() []state.Run {
 		}
 		out = append(out, run)
 	}
+	if m.history {
+		sort.SliceStable(out, func(i, j int) bool {
+			return lastMessageTime(out[i]).After(lastMessageTime(out[j]))
+		})
+	}
 	return out
+}
+
+// lastMessageTime is when a run last showed activity, falling back to its end or
+// start time when a producer recorded no explicit last-message time.
+func lastMessageTime(run state.Run) time.Time {
+	switch {
+	case run.LastMessage != nil:
+		return *run.LastMessage
+	case run.EndedAt != nil:
+		return *run.EndedAt
+	default:
+		return run.StartedAt
+	}
 }
 
 // isActive reports whether a run is still in play — working or waiting on the
@@ -658,10 +688,15 @@ const (
 	durW      = 5
 	tokensW   = 8
 	costW     = 8
+	createdW  = 12 // "Jan 02 15:04"
+	lastMsgW  = 12
 	minNameW  = 10
 	maxNameW  = 36
 	minInner  = 20
 	fixedCols = 2 + 6 + backendW + modelW + durW + tokensW + costW // marker+glyph, six gaps, fixed columns
+	// historyFixedCols swaps the model and duration columns for the created and
+	// last-message dates.
+	historyFixedCols = 2 + 6 + backendW + createdW + lastMsgW + tokensW + costW
 	// outerPadX/Y frame the whole dashboard so it never sits flush to the edges.
 	outerPadX = 2
 	outerPadY = 1
@@ -722,15 +757,18 @@ func (m Model) footer() string {
 	if m.confirmKill {
 		return headerStyle.Render("kill ") + m.killName + headerStyle.Render(" ?  (y confirm · n cancel)")
 	}
-	view := "a all"
-	if m.showAll {
-		view = "a running"
-	}
 	scope := "scope:local"
 	if m.global {
 		scope = "scope:global"
 	}
-	hint := "↑/↓ move · enter open · k kill · / filter · : cmd · " + view + " · " + scope + " · q quit"
+	hint := "↑/↓ move · enter open · / search · h dashboard · " + scope + " · q quit"
+	if !m.history {
+		view := "a all"
+		if m.showAll {
+			view = "a running"
+		}
+		hint = "↑/↓ move · enter open · k kill · / filter · : cmd · " + view + " · h history · " + scope + " · q quit"
+	}
 	if note := m.note(); note != "" {
 		return note + headerStyle.Render("   ·   "+hint)
 	}
@@ -802,7 +840,11 @@ func (m Model) table(width int, runs []state.Run, boxHeight int) string {
 	if innerW < minInner {
 		innerW = minInner
 	}
-	nameW := innerW - fixedCols
+	fixed := fixedCols
+	if m.history {
+		fixed = historyFixedCols
+	}
+	nameW := innerW - fixed
 	if nameW < minNameW {
 		nameW = minNameW
 	}
@@ -812,23 +854,25 @@ func (m Model) table(width int, runs []state.Run, boxHeight int) string {
 
 	var b strings.Builder
 	live := headerStyle.Render("● live")
-	b.WriteString(padRight(fmt.Sprintf("Agents (%d)", len(runs)), innerW-lipgloss.Width(live)))
+	title := "Agents"
+	if m.history {
+		title = "History"
+	}
+	b.WriteString(padRight(fmt.Sprintf("%s (%d)", title, len(runs)), innerW-lipgloss.Width(live)))
 	b.WriteString(live)
 
 	if len(runs) == 0 {
 		b.WriteString("\n" + m.emptyMessage())
 	} else {
 		b.WriteByte('\n')
-		b.WriteString(headerStyle.Render(formatRow(" ", " ", "NAME", "BACKEND", "MODEL", "DUR", "TOKENS", "COST", nameW)))
+		b.WriteString(headerStyle.Render(m.headerRow(nameW)))
 		for i, run := range runs {
 			marker := " "
 			if i == m.cursor {
 				marker = ">"
 			}
-			row := formatRow(marker, m.glyphFor(run.Status), run.Name, run.Backend, run.Model,
-				formatDuration(duration(run, m.now)), formatTokens(run), formatCost(run), nameW)
 			b.WriteByte('\n')
-			b.WriteString(rowStyle(run.Status, i == m.cursor).Render(row))
+			b.WriteString(rowStyle(run.Status, i == m.cursor).Render(m.runRow(marker, run, nameW)))
 		}
 	}
 
@@ -847,9 +891,30 @@ func (m Model) emptyMessage() string {
 		return "no agents match the filter — esc to clear"
 	case len(m.runs) == 0:
 		return "no agents yet — launch one with `akuaku run`"
+	case m.history:
+		return "no history in this scope — :global to widen"
 	default:
 		return "no running agents — press a to show all"
 	}
+}
+
+// headerRow is the column-title row for the active view.
+func (m Model) headerRow(nameW int) string {
+	if m.history {
+		return formatHistoryRow(" ", " ", "NAME", "BACKEND", "CREATED", "LAST MSG", "TOKENS", "COST", nameW)
+	}
+	return formatRow(" ", " ", "NAME", "BACKEND", "MODEL", "DUR", "TOKENS", "COST", nameW)
+}
+
+// runRow renders one run's cells for the active view: duration and model on the
+// dashboard, created and last-message dates in history.
+func (m Model) runRow(marker string, run state.Run, nameW int) string {
+	if m.history {
+		return formatHistoryRow(marker, m.glyphFor(run.Status), run.Name, run.Backend,
+			formatDate(run.StartedAt), formatDate(lastMessageTime(run)), formatTokens(run), formatCost(run), nameW)
+	}
+	return formatRow(marker, m.glyphFor(run.Status), run.Name, run.Backend, run.Model,
+		formatDuration(duration(run, m.now)), formatTokens(run), formatCost(run), nameW)
 }
 
 // formatRow lays a run's cells into fixed columns; name flexes to nameW.
@@ -858,6 +923,24 @@ func formatRow(marker, glyph, name, backend, model, dur, tokens, cost string, na
 		marker, glyph,
 		padRight(name, nameW), padRight(backend, backendW), padRight(model, modelW),
 		padLeft(dur, durW), padLeft(tokens, tokensW), padLeft(cost, costW))
+}
+
+// formatHistoryRow lays a run's cells with created and last-message dates in
+// place of the model and duration.
+func formatHistoryRow(marker, glyph, name, backend, created, lastMsg, tokens, cost string, nameW int) string {
+	return fmt.Sprintf("%s%s %s %s %s %s %s %s",
+		marker, glyph,
+		padRight(name, nameW), padRight(backend, backendW),
+		padRight(created, createdW), padRight(lastMsg, lastMsgW),
+		padLeft(tokens, tokensW), padLeft(cost, costW))
+}
+
+// formatDate renders a timestamp for the history columns, or a dash when unset.
+func formatDate(t time.Time) string {
+	if t.IsZero() {
+		return dash
+	}
+	return t.Format("Jan 02 15:04")
 }
 
 // rowStyle colors a row by status and highlights the selected one.

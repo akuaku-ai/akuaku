@@ -31,20 +31,21 @@ const (
 // ExitCode are pointers so they serialize as null while the run is still in
 // progress, distinguishing "not finished" from a zero end time or exit code.
 type Run struct {
-	ID        string     `json:"id"`
-	Backend   string     `json:"backend"`
-	Name      string     `json:"name"`
-	Status    Status     `json:"status"`
-	Task      string     `json:"task"`
-	Model     string     `json:"model,omitempty"`
-	Source    string     `json:"source,omitempty"`
-	PID       int        `json:"pid,omitempty"`
-	Dir       string     `json:"dir,omitempty"`
-	StartedAt time.Time  `json:"started_at"`
-	EndedAt   *time.Time `json:"ended_at"`
-	Tokens    int        `json:"tokens"`
-	Cost      float64    `json:"cost"`
-	ExitCode  *int       `json:"exit_code"`
-	Error     string     `json:"error,omitempty"`
-	Output    string     `json:"output,omitempty"`
+	ID          string     `json:"id"`
+	Backend     string     `json:"backend"`
+	Name        string     `json:"name"`
+	Status      Status     `json:"status"`
+	Task        string     `json:"task"`
+	Model       string     `json:"model,omitempty"`
+	Source      string     `json:"source,omitempty"`
+	PID         int        `json:"pid,omitempty"`
+	Dir         string     `json:"dir,omitempty"`
+	StartedAt   time.Time  `json:"started_at"`
+	LastMessage *time.Time `json:"last_message_at,omitempty"`
+	EndedAt     *time.Time `json:"ended_at"`
+	Tokens      int        `json:"tokens"`
+	Cost        float64    `json:"cost"`
+	ExitCode    *int       `json:"exit_code"`
+	Error       string     `json:"error,omitempty"`
+	Output      string     `json:"output,omitempty"`
 }

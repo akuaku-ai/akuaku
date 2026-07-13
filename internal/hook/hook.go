@@ -46,14 +46,15 @@ func Handle(event string, r io.Reader, dir string, now time.Time) error {
 	switch event {
 	case "SessionStart":
 		return state.Write(dir, state.Run{
-			ID:        p.SessionID,
-			Backend:   backendClaude,
-			Name:      sessionName(p),
-			Status:    state.StatusRunning,
-			Model:     p.Model,
-			Source:    sourceHook,
-			Dir:       p.Cwd,
-			StartedAt: now,
+			ID:          p.SessionID,
+			Backend:     backendClaude,
+			Name:        sessionName(p),
+			Status:      state.StatusRunning,
+			Model:       p.Model,
+			Source:      sourceHook,
+			Dir:         p.Cwd,
+			StartedAt:   now,
+			LastMessage: &now,
 		})
 	case "UserPromptSubmit":
 		// The user responded, so the agent is working again — clear any waiting.
@@ -62,17 +63,20 @@ func Handle(event string, r io.Reader, dir string, now time.Time) error {
 				run.Task = p.UserInput
 			}
 			run.Status = state.StatusRunning
+			run.LastMessage = &now
 		})
 	case "Notification", "Stop":
 		// Claude Code needs the user: a permission prompt, idle input, or a
 		// finished turn. Surface it as waiting so the monitor can call attention.
 		return mutate(dir, p.SessionID, func(run *state.Run) {
 			run.Status = state.StatusWaiting
+			run.LastMessage = &now
 		})
 	case "SessionEnd":
 		return mutate(dir, p.SessionID, func(run *state.Run) {
 			run.Status = state.StatusDone
 			run.EndedAt = &now
+			run.LastMessage = &now
 		})
 	}
 	return nil
