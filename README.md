@@ -138,9 +138,11 @@ Because the state JSON is the only channel, anything can be a producer — `akua
 
 ## Roadmap
 
-- Reflect Codex and other agents started outside Akuaku (Claude Code sessions already work via `akuaku hook install`).
-- An embedded, interactive Claude session inside the TUI.
-- Alerts → webhooks → connectors.
+Next: a history view with search and dates, tags to group related sessions, and
+the flagship — **interactive sessions**, where entering an agent opens the real
+Claude Code in a pane (detach with `Ctrl-a d`, keep it running in the
+background). See **[docs/ROADMAP.md](docs/ROADMAP.md)** for the full plan and
+**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for how Akuaku works today.
 
 ## FAQ
 
