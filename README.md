@@ -67,6 +67,8 @@ Press `/` to filter the list as you type — matching name or model. Prefix the 
 
 Press `:` for commands on the selected agent. `:rename <name>` gives it a custom label (stored as an overlay, so the run's own state is never touched). `:kill` stops a running agent Akuaku launched (it signals the recorded process); reflected sessions have no process to kill.
 
+`:discovery` toggles process discovery. Hooks and `akuaku run` only record sessions that start *after* you wire them up — anything already running when you open the monitor is invisible. With discovery on, Akuaku scans the process table each tick and surfaces every running agent CLI (`claude`, `codex`, `ollama run`) it finds, labeled by its working directory, deduped against what's already on disk. Discovered runs show `—` for tokens and cost and carry no task: Akuaku reads only what the OS exposes (command, PID, directory, start time), never transcripts. They vanish on their own when the process exits.
+
 Launch an agent:
 
 ```sh
