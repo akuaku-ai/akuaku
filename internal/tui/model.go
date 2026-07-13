@@ -102,22 +102,25 @@ func mergeDiscovered(onDisk, discovered []state.Run) []state.Run {
 // row, detail toggles the single-run view, and width/height track the terminal
 // size so the dashboard fills it.
 type Model struct {
-	runs       []state.Run
-	now        time.Time
-	err        error
-	cursor     int
-	detail     bool
-	width      int
-	height     int
-	filter     string // active filter query; empty shows everything
-	filtering  bool   // whether the filter input is being edited
-	showAll    bool   // false shows only running agents; true shows the full history
-	discover   bool   // whether running processes are scanned and merged in
-	global     bool   // false scopes the list to root; true shows every directory
-	root       string // the monitor's working directory: the local scope's root
-	command    string // command being typed after ":"
-	commanding bool   // whether the command input is being edited
-	commandMsg string // result of the last command, shown until the next one
+	runs        []state.Run
+	now         time.Time
+	err         error
+	cursor      int
+	detail      bool
+	width       int
+	height      int
+	filter      string // active filter query; empty shows everything
+	filtering   bool   // whether the filter input is being edited
+	showAll     bool   // false shows only running agents; true shows the full history
+	discover    bool   // whether running processes are scanned and merged in
+	global      bool   // false scopes the list to root; true shows every directory
+	root        string // the monitor's working directory: the local scope's root
+	command     string // command being typed after ":"
+	commanding  bool   // whether the command input is being edited
+	commandMsg  string // result of the last command, shown until the next one
+	confirmKill bool   // whether the k-key kill is awaiting y/n confirmation
+	killPID     int    // the process the armed kill will signal
+	killName    string // the armed kill's target name, for the prompt
 }
 
 // New returns a Model in its initial state, with process discovery on so
@@ -151,16 +154,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.commanding {
 			return m.commandKey(msg)
 		}
+		if m.confirmKill {
+			return m.confirmKillKey(msg)
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
-		case "up", "k":
+		case "up":
 			if m.cursor > 0 {
 				m.cursor--
 			}
 		case "down", "j":
 			if m.cursor < len(m.visible())-1 {
 				m.cursor++
+			}
+		case "k":
+			if !m.detail {
+				m = m.armKill()
 			}
 		case "enter":
 			if !m.detail && len(m.visible()) > 0 {
@@ -278,23 +288,62 @@ func (m Model) dispatch(command string) (tea.Model, tea.Cmd) {
 		m.cursor = clamp(m.cursor, len(m.visible()))
 		return m, nil
 	case "kill":
-		if m.cursor >= len(m.visible()) {
-			m.commandMsg = "no agent selected"
+		// Typing the whole command is deliberate enough to kill immediately; the
+		// k key, one keystroke away from the cursor keys, confirms first instead.
+		pid, name, reason, ok := m.killTarget()
+		if !ok {
+			m.commandMsg = reason
 			return m, nil
 		}
-		run := m.visible()[m.cursor]
-		switch {
-		case run.Status != state.StatusRunning:
-			m.commandMsg = "only running agents can be killed"
-		case run.PID == 0:
-			m.commandMsg = "can't kill this agent — no process (a reflected session?)"
-		default:
-			m.commandMsg = "killing " + run.Name
-			return m, killCmd(run.PID, m.discover)
-		}
-		return m, nil
+		m.commandMsg = "killing " + name
+		return m, killCmd(pid, m.discover)
 	default:
 		m.commandMsg = "unknown command: " + fields[0]
+		return m, nil
+	}
+}
+
+// killTarget validates the selected run for killing. It returns the process to
+// signal and its name, or a reason the run cannot be killed.
+func (m Model) killTarget() (pid int, name, reason string, ok bool) {
+	if m.cursor >= len(m.visible()) {
+		return 0, "", "no agent selected", false
+	}
+	run := m.visible()[m.cursor]
+	switch {
+	case run.Status != state.StatusRunning:
+		return 0, "", "only running agents can be killed", false
+	case run.PID == 0:
+		return 0, "", "can't kill this agent — no process (a reflected session?)", false
+	}
+	return run.PID, run.Name, "", true
+}
+
+// armKill readies a kill of the selected agent, to be confirmed with y. An
+// invalid selection reports why instead of arming.
+func (m Model) armKill() Model {
+	pid, name, reason, ok := m.killTarget()
+	if !ok {
+		m.commandMsg = reason
+		return m
+	}
+	m.confirmKill = true
+	m.killPID = pid
+	m.killName = name
+	m.commandMsg = ""
+	return m
+}
+
+// confirmKillKey resolves the k-key confirmation: y (or enter) signals the armed
+// process; anything else cancels.
+func (m Model) confirmKillKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	m.confirmKill = false
+	switch msg.String() {
+	case "y", "enter":
+		m.commandMsg = "killing " + m.killName
+		return m, killCmd(m.killPID, m.discover)
+	default:
+		m.commandMsg = "kill canceled"
 		return m, nil
 	}
 }
@@ -574,6 +623,9 @@ func (m Model) footer() string {
 	if m.commanding {
 		return headerStyle.Render(":") + m.command + headerStyle.Render("▏  (enter run · esc cancel)")
 	}
+	if m.confirmKill {
+		return headerStyle.Render("kill ") + m.killName + headerStyle.Render(" ?  (y confirm · n cancel)")
+	}
 	view := "a all"
 	if m.showAll {
 		view = "a running"
@@ -582,7 +634,7 @@ func (m Model) footer() string {
 	if m.global {
 		scope = "scope:global"
 	}
-	hint := "↑/↓ move · enter open · / filter · : cmd · " + view + " · " + scope + " · q quit"
+	hint := "↑/↓ move · enter open · k kill · / filter · : cmd · " + view + " · " + scope + " · q quit"
 	if note := m.note(); note != "" {
 		return note + headerStyle.Render("   ·   "+hint)
 	}
