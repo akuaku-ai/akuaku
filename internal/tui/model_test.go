@@ -1075,6 +1075,79 @@ func TestDispatch_KillRefusesNonRunningNoPIDAndNoSelection(t *testing.T) {
 	}
 }
 
+func TestUpdate_KArmsKillConfirmationWithoutMovingCursor(t *testing.T) {
+	runs := []state.Run{{ID: "r", Name: "runaway", Status: state.StatusRunning, PID: 9999}}
+	next, cmd := Model{runs: runs}.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
+	m := next.(Model)
+	if !m.confirmKill || m.killPID != 9999 || m.killName != "runaway" {
+		t.Fatalf("k should arm the kill: %+v", m)
+	}
+	if cmd != nil {
+		t.Error("arming must not run a command yet")
+	}
+	if m.cursor != 0 {
+		t.Error("k must not move the cursor (it is no longer an up alias)")
+	}
+}
+
+func TestUpdate_KOnUnkillableRunReportsReason(t *testing.T) {
+	hook := []state.Run{{ID: "h", Status: state.StatusRunning, Source: "hook", Name: "ext"}} // PID 0
+	next, cmd := Model{runs: hook}.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
+	if next.(Model).confirmKill {
+		t.Error("must not arm a kill for a run with no process")
+	}
+	if cmd != nil || !strings.Contains(next.(Model).commandMsg, "no process") {
+		t.Errorf("msg = %q", next.(Model).commandMsg)
+	}
+}
+
+func TestConfirmKill_YSignalsTheArmedProcess(t *testing.T) {
+	t.Setenv("AKUAKU_STATE_DIR", t.TempDir())
+	original := killProcess
+	var killed int
+	killProcess = func(pid int) error { killed = pid; return nil }
+	defer func() { killProcess = original }()
+
+	next, cmd := Model{confirmKill: true, killPID: 9999, killName: "runaway"}.
+		Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	if next.(Model).confirmKill {
+		t.Error("confirmation should clear after y")
+	}
+	if !strings.Contains(next.(Model).commandMsg, "killing") {
+		t.Errorf("msg = %q", next.(Model).commandMsg)
+	}
+	if cmd == nil {
+		t.Fatal("y should run the kill command")
+	}
+	if _, ok := cmd().(runsMsg); !ok {
+		t.Fatalf("kill cmd returned %T", cmd())
+	}
+	if killed != 9999 {
+		t.Errorf("killed PID = %d, want 9999", killed)
+	}
+}
+
+func TestConfirmKill_OtherKeyCancels(t *testing.T) {
+	next, cmd := Model{confirmKill: true, killPID: 9999, killName: "runaway"}.
+		Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	if next.(Model).confirmKill {
+		t.Error("confirmation should clear after n")
+	}
+	if cmd != nil {
+		t.Error("canceling must not run a command")
+	}
+	if !strings.Contains(next.(Model).commandMsg, "canceled") {
+		t.Errorf("msg = %q", next.(Model).commandMsg)
+	}
+}
+
+func TestView_FooterShowsKillConfirmation(t *testing.T) {
+	out := Model{runs: threeRuns(), width: 100, confirmKill: true, killName: "two"}.View()
+	if !strings.Contains(out, "kill") || !strings.Contains(out, "two") || !strings.Contains(out, "y confirm") {
+		t.Errorf("footer should prompt to confirm the kill, got:\n%s", out)
+	}
+}
+
 func TestKillProcess_TerminatesRealProcess(t *testing.T) {
 	cmd := exec.Command("sleep", "30")
 	if err := cmd.Start(); err != nil {

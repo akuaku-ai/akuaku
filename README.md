@@ -65,7 +65,9 @@ By default the list shows only **running** agents; press `a` to toggle the full 
 
 Press `/` to filter the list as you type — matching name or model. Prefix the query with `-n ` or `-m ` to match only the name or only the model (e.g. `-m opus`). `Enter` applies the filter, `Esc` clears it.
 
-Press `:` for commands on the selected agent. `:rename <name>` gives it a custom label (stored as an overlay, so the run's own state is never touched). `:kill` stops a running agent Akuaku launched (it signals the recorded process); reflected sessions have no process to kill.
+Press `:` for commands on the selected agent. `:rename <name>` gives it a custom label (stored as an overlay, so the run's own state is never touched). `:kill` stops a running agent by signaling its recorded process; it works for agents Akuaku launched and for discovered ones (both carry a PID), but not reflected hook sessions, which have no process to kill.
+
+Press `k` for the same kill on the selected agent with a one-key confirmation (`y` to confirm, `n` to cancel) — quicker than typing `:kill`, and guarded so a stray keystroke never terminates a process.
 
 By default the monitor is **scoped to the directory you launched it in**: it shows agents whose working directory is that folder or below it, so opening Akuaku inside a project shows that project's agents, not every session on the machine. `:global` widens the list to every directory; `:local` scopes it back. The active scope shows in the footer. Runs with no recorded directory (older runs) appear only in `:global`. Every producer records its directory — `akuaku run` and reflected hook sessions from their working directory, discovered processes from the OS.
 
