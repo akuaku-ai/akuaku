@@ -112,9 +112,10 @@ type Model struct {
 	commandMsg string // result of the last command, shown until the next one
 }
 
-// New returns a Model in its initial state.
+// New returns a Model in its initial state, with process discovery on so
+// sessions already running when the monitor opens appear without any setup.
 func New() Model {
-	return Model{}
+	return Model{discover: true}
 }
 
 // Init starts the refresh loop and loads the current runs.

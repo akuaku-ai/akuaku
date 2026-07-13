@@ -50,22 +50,26 @@ func main() {
 	os.Exit(cli.Run(os.Args[1:], deps))
 }
 
-// scanProcesses snapshots the OS process table with gopsutil and hands it to the
-// discovery logic, so the monitor's `:discovery` toggle can surface agent
-// sessions started outside Akuaku. A process that vanished or is unreadable is
-// skipped rather than failing the scan.
+// scanProcesses snapshots the OS process table with gopsutil and hands the agent
+// processes to the discovery logic, so the monitor surfaces agent sessions
+// started outside Akuaku. It runs on every refresh tick, so it pays for the
+// expensive fields (working directory, start time) only for the few processes
+// discover.Match recognizes as agents, not the hundreds it skips. A process that
+// vanished or is unreadable is dropped rather than failing the scan.
 func scanProcesses() []state.Run {
 	procs, err := process.Processes()
 	if err != nil {
 		return nil
 	}
-	snapshot := make([]discover.Process, 0, len(procs))
+	var agents []discover.Process
 	for _, p := range procs {
 		// argv identifies the program; a CLI's argv[0] is its command name even
-		// when the executable is a version-stamped path. A process with no
-		// readable command line contributes nothing and is skipped by List.
+		// when the executable is a version-stamped path.
 		args, err := p.CmdlineSlice()
 		if err != nil {
+			continue
+		}
+		if _, ok := discover.Match(args); !ok {
 			continue
 		}
 		cwd, _ := p.Cwd()
@@ -73,14 +77,14 @@ func scanProcesses() []state.Run {
 		if ms, err := p.CreateTime(); err == nil {
 			started = time.UnixMilli(ms)
 		}
-		snapshot = append(snapshot, discover.Process{
+		agents = append(agents, discover.Process{
 			PID:       int(p.Pid),
 			Args:      args,
 			Cwd:       cwd,
 			StartedAt: started,
 		})
 	}
-	return discover.List(snapshot, os.Getpid())
+	return discover.List(agents, os.Getpid())
 }
 
 // runUpdate reinstalls Akuaku from source. GOPROXY=direct bypasses the module
