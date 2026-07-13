@@ -62,6 +62,8 @@ It opens a full-screen dashboard: an overview strip (live/done/error counts, tot
 
 By default the list shows the agents still in play — **running** and **waiting** (`◐`, blocked on you for a permission prompt or your next message); press `a` to toggle the full history (every status) and back. When an agent finishes, fails, or starts waiting for you, Akuaku rings the terminal bell and shows a banner, so you can leave it open in a split and get pulled back only when an agent needs you.
 
+Press `h` for the **history view**: every run, most-recent first, with **created** and **last-message** dates instead of live duration. `/` searches it and the scope still applies; `h` or `esc` returns to the dashboard.
+
 Press `/` to filter the list as you type — matching name or model. Prefix the query with `-n ` or `-m ` to match only the name or only the model (e.g. `-m opus`). `Enter` applies the filter, `Esc` clears it.
 
 Press `:` for commands on the selected agent. `:rename <name>` gives it a custom label (stored as an overlay, so the run's own state is never touched). `:kill` stops a running agent by signaling its recorded process; it works for agents Akuaku launched and for discovered ones (both carry a PID), but not reflected hook sessions, which have no process to kill.

@@ -203,6 +203,94 @@ func TestGlyphFor_AnimatesRunningOnly(t *testing.T) {
 	}
 }
 
+func TestUpdate_HTogglesHistory(t *testing.T) {
+	on, _ := Model{runs: threeRuns()}.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")})
+	if !on.(Model).history {
+		t.Fatal("h should open the history view")
+	}
+	off, _ := on.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")})
+	if off.(Model).history {
+		t.Error("h again should close it")
+	}
+}
+
+func TestUpdate_EscPeelsDetailThenHistory(t *testing.T) {
+	// Esc from a detail opened inside history returns to the history list.
+	m := Model{runs: threeRuns(), history: true, detail: true}
+	back, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if back.(Model).detail || !back.(Model).history {
+		t.Fatalf("first esc should close detail but keep history: %+v", back.(Model))
+	}
+	// A second esc leaves history.
+	dash, _ := back.(Model).Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if dash.(Model).history {
+		t.Error("second esc should leave history")
+	}
+}
+
+func TestVisible_HistoryShowsAllStatusesMostRecentFirst(t *testing.T) {
+	t0, t2 := time.Unix(100, 0), time.Unix(300, 0)
+	runs := []state.Run{
+		{ID: "old", Status: state.StatusDone, StartedAt: time.Unix(1, 0), LastMessage: &t0},
+		{ID: "run", Status: state.StatusRunning, StartedAt: time.Unix(1, 0)},
+		{ID: "new", Status: state.StatusError, StartedAt: time.Unix(1, 0), LastMessage: &t2},
+	}
+	got := Model{runs: runs, history: true}.visible()
+	if len(got) != 3 {
+		t.Fatalf("history should show every status, got %d", len(got))
+	}
+	if got[0].ID != "new" {
+		t.Errorf("history should be most-recent first, got %s first", got[0].ID)
+	}
+}
+
+func TestView_HistoryShowsDateColumnsAndTitle(t *testing.T) {
+	ended := time.Unix(1_752_400_000, 0)
+	runs := []state.Run{{ID: "a", Name: "refactor", Backend: "claude", Status: state.StatusDone,
+		StartedAt: time.Unix(1_752_390_000, 0), LastMessage: &ended}}
+	out := Model{runs: runs, history: true, width: 110, now: ended}.View()
+
+	for _, want := range []string{"History (1)", "CREATED", "LAST MSG", "refactor"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("history view missing %q, got:\n%s", want, out)
+		}
+	}
+	if !strings.Contains(out, "h dashboard") {
+		t.Errorf("history footer should offer returning to the dashboard, got:\n%s", out)
+	}
+}
+
+func TestView_HistoryEmptyInScope(t *testing.T) {
+	runs := []state.Run{{ID: "a", Status: state.StatusDone, Dir: "/elsewhere"}}
+	out := Model{runs: runs, history: true, root: "/here", width: 100}.View()
+	if !strings.Contains(out, "no history in this scope") {
+		t.Errorf("expected the scoped-empty history message, got:\n%s", out)
+	}
+}
+
+func TestLastMessageTime_FallsBackThroughEndThenStart(t *testing.T) {
+	last, end := time.Unix(300, 0), time.Unix(200, 0)
+	start := time.Unix(100, 0)
+	if got := lastMessageTime(state.Run{StartedAt: start, EndedAt: &end, LastMessage: &last}); !got.Equal(last) {
+		t.Errorf("should prefer last-message, got %v", got)
+	}
+	if got := lastMessageTime(state.Run{StartedAt: start, EndedAt: &end}); !got.Equal(end) {
+		t.Errorf("should fall back to end time, got %v", got)
+	}
+	if got := lastMessageTime(state.Run{StartedAt: start}); !got.Equal(start) {
+		t.Errorf("should fall back to start time, got %v", got)
+	}
+}
+
+func TestFormatDate(t *testing.T) {
+	if got := formatDate(time.Time{}); got != dash {
+		t.Errorf("zero time should render as a dash, got %q", got)
+	}
+	if got := formatDate(time.Date(2026, 7, 13, 9, 2, 0, 0, time.UTC)); got != "Jul 13 09:02" {
+		t.Errorf("formatDate = %q, want \"Jul 13 09:02\"", got)
+	}
+}
+
 func TestComputeMetrics_CountsWaiting(t *testing.T) {
 	m := computeMetrics([]state.Run{
 		{Status: state.StatusWaiting},
