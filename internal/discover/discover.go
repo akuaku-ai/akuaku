@@ -38,37 +38,24 @@ var agents = map[string]string{
 	"ollama": "ollama",
 }
 
-// List turns the agent CLI processes among procs into running runs. It skips
-// selfPID (the monitor itself), processes with no command line, non-agent
-// programs, and the `ollama serve` daemon, which is not an agent run.
+// List turns the agent CLI processes among procs into running runs, skipping
+// selfPID (the monitor itself) and anything Match rejects.
 func List(procs []Process, selfPID int) []state.Run {
 	var runs []state.Run
 	for _, p := range procs {
-		if p.PID == selfPID || len(p.Args) == 0 {
+		if p.PID == selfPID {
 			continue
 		}
-		backend, ok := agents[filepath.Base(p.Args[0])]
+		backend, ok := Match(p.Args)
 		if !ok {
 			continue
 		}
-
-		model := ""
-		if backend == "ollama" {
-			i := argIndex(p.Args, "run")
-			if i < 0 {
-				continue // `ollama serve` and friends are not runs
-			}
-			if i+1 < len(p.Args) {
-				model = p.Args[i+1]
-			}
-		}
-
 		runs = append(runs, state.Run{
 			ID:        fmt.Sprintf("proc-%d", p.PID),
 			Backend:   backend,
 			Name:      name(backend, p.Cwd),
 			Status:    state.StatusRunning,
-			Model:     model,
+			Model:     ollamaModel(backend, p.Args),
 			Source:    state.SourceProcess,
 			PID:       p.PID,
 			Dir:       p.Cwd,
@@ -76,6 +63,37 @@ func List(procs []Process, selfPID int) []state.Run {
 		})
 	}
 	return runs
+}
+
+// Match reports the backend of a process from its argv, or ok=false when it is
+// not an agent run. It identifies by the base name of argv[0] (a CLI's command
+// name even when the executable is a version-stamped path) and rejects the
+// `ollama serve` daemon. It is exported so a scanner can cheaply skip non-agents
+// before paying to read their working directory.
+func Match(args []string) (string, bool) {
+	if len(args) == 0 {
+		return "", false
+	}
+	backend, ok := agents[filepath.Base(args[0])]
+	if !ok {
+		return "", false
+	}
+	if backend == "ollama" && argIndex(args, "run") < 0 {
+		return "", false
+	}
+	return backend, true
+}
+
+// ollamaModel returns the model named by an `ollama run <model>` command, or ""
+// for other backends or an `ollama run` with no model.
+func ollamaModel(backend string, args []string) string {
+	if backend != "ollama" {
+		return ""
+	}
+	if i := argIndex(args, "run"); i+1 < len(args) {
+		return args[i+1]
+	}
+	return ""
 }
 
 // name labels a discovered run with its working directory's base name, so

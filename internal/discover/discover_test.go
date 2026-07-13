@@ -8,6 +8,31 @@ import (
 	"github.com/akuaku-ai/akuaku/internal/state"
 )
 
+func TestMatch_IdentifiesAgentsAndRejectsNoise(t *testing.T) {
+	cases := []struct {
+		name    string
+		args    []string
+		backend string
+		ok      bool
+	}{
+		{"claude cli", []string{"claude"}, "claude", true},
+		{"codex with path", []string{"/usr/local/bin/codex", "exec"}, "codex", true},
+		{"ollama run", []string{"/opt/homebrew/bin/ollama", "run", "llama3.1"}, "ollama", true},
+		{"ollama serve daemon", []string{"/opt/homebrew/bin/ollama", "serve"}, "", false},
+		{"unrelated program", []string{"node", "server.js"}, "", false},
+		{"claude desktop app", []string{"/Applications/Claude.app/Contents/MacOS/Claude"}, "", false},
+		{"empty argv", nil, "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			backend, ok := discover.Match(c.args)
+			if backend != c.backend || ok != c.ok {
+				t.Errorf("Match(%v) = (%q, %v), want (%q, %v)", c.args, backend, ok, c.backend, c.ok)
+			}
+		})
+	}
+}
+
 func TestList_KeepsAgentCLIsAsRunningRuns(t *testing.T) {
 	procs := []discover.Process{
 		{PID: 100, Args: []string{"claude"}, Cwd: "/home/u/proj"},

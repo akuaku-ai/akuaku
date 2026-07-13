@@ -21,6 +21,12 @@ func TestNew_StartsEmpty(t *testing.T) {
 	}
 }
 
+func TestNew_DiscoveryOnByDefault(t *testing.T) {
+	if !New().discover {
+		t.Error("discovery should be on by default so running sessions appear without setup")
+	}
+}
+
 func TestInit_ReturnsCommand(t *testing.T) {
 	if New().Init() == nil {
 		t.Fatal("Init() = nil, want a command")
