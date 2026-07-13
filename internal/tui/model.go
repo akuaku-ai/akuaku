@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/akuaku-ai/akuaku/internal/brand"
 	"github.com/akuaku-ai/akuaku/internal/state"
 )
 
@@ -395,7 +396,7 @@ func computeMetrics(runs []state.Run) metrics {
 
 // The dashboard palette: a stone-and-aqua signature with status-driven row color.
 var (
-	colorAccent   = lipgloss.Color("44")  // aqua — the Akuaku accent
+	colorAccent   = brand.Accent          // aqua — the Akuaku accent
 	colorStone    = lipgloss.Color("240") // border gray
 	colorRunning  = lipgloss.Color("42")  // green — live
 	colorError    = lipgloss.Color("203") // red — failed
@@ -502,7 +503,7 @@ func (m Model) note() string {
 // header is the k9s-style top strip: run stats on the left and the Akuaku logo
 // right-aligned. The logo is the brand mark that replaces the emoji.
 func (m Model) header(width int, mt metrics) string {
-	logo := logoBlock()
+	logo := brand.Logo()
 	logoW := 0
 	for _, art := range logo {
 		if w := lipgloss.Width(art); w > logoW {
@@ -537,41 +538,6 @@ func (m Model) header(width int, mt metrics) string {
 		fmt.Fprintf(&b, "\nerror reading state: %s", m.err)
 	}
 	return b.String()
-}
-
-// logoBlock is the Akuaku brand mark: a colored tiki mask beside the AKUAKU
-// wordmark in block characters. Each line is pre-styled, so the caller measures
-// it with lipgloss.Width. The mask is three rows tall; the two-row wordmark sits
-// at its top, leaving the mask's mouth on the last row.
-func logoBlock() []string {
-	word := lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
-	words := []string{
-		word.Render("▄▀█ █▄▀ █ █ ▄▀█ █▄▀ █ █"),
-		word.Render("█▀█ █▀▄ █▄█ █▀█ █▀▄ █▄█"),
-		"",
-	}
-	mask := maskLines()
-	block := make([]string, len(mask))
-	for i := range mask {
-		block[i] = mask[i]
-		if words[i] != "" {
-			block[i] += "  " + words[i]
-		}
-	}
-	return block
-}
-
-// maskLines draws a small, colorful tiki mask (feathers, eyes, mouth) — Akuaku's
-// face. Every line is five display columns wide so it aligns beside the wordmark.
-func maskLines() []string {
-	paint := func(code, s string) string {
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(code)).Render(s)
-	}
-	return []string{
-		" " + paint("99", `\`) + paint("220", "|") + paint("208", "/") + " ",
-		paint("130", "(") + paint("220", "●") + " " + paint("220", "●") + paint("130", ")"),
-		" " + paint("196", "╰—╯") + " ",
-	}
 }
 
 // table renders the bordered agent list, filling width and (when boxHeight > 0)

@@ -43,6 +43,7 @@ func newHarness(monitorErr, launchErr error) *harness {
 		In:          strings.NewReader(""),
 		Out:         &h.out,
 		Err:         &h.err,
+		Version:     "v9.9.9-test",
 	}
 	return h
 }
@@ -148,6 +149,48 @@ func TestRun_UnknownCommandErrors(t *testing.T) {
 	}
 	if !strings.Contains(h.err.String(), "unknown command") {
 		t.Errorf("stderr = %q", h.err.String())
+	}
+	// A command nothing resembles gets no suggestion, only the help pointer.
+	if strings.Contains(h.err.String(), "did you mean") {
+		t.Errorf("unexpected suggestion for a far-off command: %q", h.err.String())
+	}
+	if !strings.Contains(h.err.String(), "akuaku help") {
+		t.Errorf("missing help pointer: %q", h.err.String())
+	}
+}
+
+func TestRun_UnknownCommandSuggestsNearest(t *testing.T) {
+	cases := map[string]string{"setpu": "setup", "verison": "version", "instal": "install"}
+	for typo, want := range cases {
+		h := newHarness(nil, nil)
+		if code := Run([]string{typo}, h.deps); code != 2 {
+			t.Fatalf("%s: code = %d, want 2", typo, code)
+		}
+		if !strings.Contains(h.err.String(), `did you mean "`+want+`"`) {
+			t.Errorf("%s: want suggestion %q, stderr = %q", typo, want, h.err.String())
+		}
+	}
+}
+
+func TestRun_VersionPrints(t *testing.T) {
+	for _, arg := range []string{"version", "-v", "--version"} {
+		h := newHarness(nil, nil)
+		if code := Run([]string{arg}, h.deps); code != 0 {
+			t.Errorf("%s: code = %d, want 0", arg, code)
+		}
+		if !strings.Contains(h.out.String(), "akuaku v9.9.9-test") {
+			t.Errorf("%s: version missing, got %q", arg, h.out.String())
+		}
+	}
+}
+
+func TestRun_HelpShowsBrandedSections(t *testing.T) {
+	h := newHarness(nil, nil)
+	Run([]string{"help"}, h.deps)
+	for _, want := range []string{"USAGE", "COMMANDS", "EXAMPLES", "FLAGS", "run", "hook install"} {
+		if !strings.Contains(h.out.String(), want) {
+			t.Errorf("help missing %q, got:\n%s", want, h.out.String())
+		}
 	}
 }
 
